@@ -1,12 +1,19 @@
 import { Response, Request } from 'express'
 import _ from 'lodash'
-import { validateActionSchema } from '../../shared/validateLogs'
 import { logger } from '../../shared/logger'
 import { DOMAIN, IHttpResponse } from '../../shared/types'
-import { actionsArray } from '../../constants'
 import helper from './helper'
 
 import { verify, hash } from '../../shared/crypto'
+
+import { dropDB, setValue } from '../../shared/dao'
+// Retail 1.2.5
+import { checkSearch as checkSearch125 } from '../../utils/Retail_.1.2.5/Search/search'
+import { checkOnsearch as checkOnSearch125 } from '../../utils/Retail_.1.2.5/Search/on_search'
+import { checkOnsearchFullCatalogRefresh as checkOnSearchRET11 } from '../../utils/Retail_.1.2.5/RET11_onSearch/onSearch'
+// Retail 1.2.0
+import { checkSearch as checkSearch120 } from '../../utils/Retail/Search/search'
+import { checkOnsearch as checkOnSearch120 } from '../../utils/Retail/Search/on_search'
 
 const controller = {
   validate: async (req: Request, res: Response): Promise<Response | void> => {
@@ -82,7 +89,7 @@ const controller = {
 
       const { signature, currentDate } = await helper.createSignature({ message: JSON.stringify(httpResponse) })
 
-     if(!success && response)return res.status(200).send({ success, response: httpResponse, signature, signTimestamp: currentDate })
+      if (!success && response) return res.status(200).send({ success, response: httpResponse, signature, signTimestamp: currentDate })
       if (!success)
         return res.status(400).send({ success, response: httpResponse, signature, signTimestamp: currentDate })
 
@@ -153,40 +160,72 @@ const controller = {
 
   validateSingleAction: async (req: Request, res: Response): Promise<Response | void> => {
     try {
-      let error
       if (!req.body) return res.status(400).send({ success: false, error: 'provide transaction logs to verify' })
-      const { context, message } = req.body
+      const { context, message, flow } = req.body
 
       if (!context || !message) return res.status(400).send({ success: false, error: 'context, message are required' })
-
       if (!context.domain || !context.core_version || !context.action) {
         return res
           .status(400)
           .send({ success: false, error: 'context.domain, context.core_version, context.action is required' })
       }
 
-      const { domain, core_version, action } = req.body.context
-      if (!actionsArray.includes(action)) {
-        return res.status(400).send({ success: false, error: 'context.action should be valid' })
-      }
+      const { domain, core_version, action } = context
+      const domainShort = domain.split(':')[1]
+      logger.info(`validateSingleAction: domain=${domain}, domainShort=${domainShort}, action=${action}, core_version=${core_version}`)
 
-      const payload = req.body
-      switch (core_version) {
-        case '1.2.0':
+      await dropDB()
+      setValue('flow', flow || '1')
+      setValue('domain', domainShort)
+      const msgIdSet = new Set()
+      let error: any = {}
+
+      // Reconstruct the full data object like the regular validate endpoint expects
+      const fullData = { context, message }
+      
+       switch (core_version) {
         case '1.2.5':
-          error = validateActionSchema(payload, domain, action)
+          switch (action) {
+            case 'search':
+              logger.info(`validateSingleAction: calling checkSearch125 for domain ${domainShort}`)
+              error = checkSearch125(fullData, msgIdSet, flow, true)
+              logger.info(`validateSingleAction: checkSearch125 result:`, error)
+              break
+            case 'on_search':
+              if (domainShort === 'RET11') {
+                logger.info(`validateSingleAction: calling checkOnSearchRET11 for domain ${domainShort}`)
+                error = checkOnSearchRET11(fullData, flow, true)
+              } else {
+                logger.info(`validateSingleAction: calling checkOnSearch125 for domain ${domainShort}`)
+                error = checkOnSearch125(fullData, flow, true)
+              }
+              logger.info(`validateSingleAction: on_search result:`, error)
+              break
+            default:
+              return res.status(400).send({ success: false, error: `Unsupported action for retail 1.2.5: ${action}` })
+          }
+          break
+        case '1.2.0':
+          switch (action) {
+            case 'search':
+              error = checkSearch120({ context, message }, msgIdSet)
+              break
+            case 'on_search':
+              error = checkOnSearch120({ context, message })
+              break
+            default:
+              return res.status(400).send({ success: false, error: `Unsupported action for retail 1.2.0: ${action}` })
+          }
           break
         default:
-          logger.warn('Invalid core_version !! ')
-          res.status(400).send({ success: false, error: 'Invalid core_version, Please Enter a valid core_version' })
-          return
+          return res.status(400).send({ success: false, error: 'Invalid core_version' })
       }
 
-      if (!_.isEmpty(error)) res.status(400).send({ success: false, error })
-      else return res.status(200).send({ success: true, error })
+      if (error && Object.keys(error).length) return res.status(400).send({ success: false, error })
+      return res.status(200).send({ success: true, error: false })
     } catch (error) {
       logger.error(error)
-      return res.status(500).send({ success: false, error: error })
+      return res.status(500).send({ success: false, error })
     }
   },
   getValidationFormat: async (req: Request, res: Response): Promise<Response | void> => {
@@ -209,14 +248,14 @@ const controller = {
       return res.status(500).send({ success: false, error: error })
     }
   },
-  healthCheck: async(req: Request, res: Response): Promise<Response |void> =>{
+  healthCheck: async (req: Request, res: Response): Promise<Response | void> => {
     try {
       logger.info(req)
-     return res.status(200).send({success: true, status:"OK"})
+      return res.status(200).send({ success: true, status: "OK" })
     }
-    catch(error){
+    catch (error) {
       logger.error(error)
-      return res.status(500).send({success: false, status:"fail"})
+      return res.status(500).send({ success: false, status: "fail" })
     }
   }
 }

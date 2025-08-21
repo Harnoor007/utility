@@ -33,7 +33,8 @@ import { applianceData } from '../../../constants/appliance'
 import { fashion } from '../../../constants/fashion'
 import { DOMAIN, FLOW, OFFERSFLOW, statutory_reqs } from '../../enum'
 import { ret1aJSON } from '../../../constants/ret1a'
-export const checkOnsearch = (data: any,flow?: string) => {
+
+export const checkOnsearch = (data: any, flow?: string, stateless: boolean = false) => {
   console.log('in this on_search 1.2.5')
 
   if (!data || isObjectEmpty(data)) {
@@ -45,7 +46,10 @@ export const checkOnsearch = (data: any,flow?: string) => {
   if (!message || !context || !message.catalog || isObjectEmpty(message) || isObjectEmpty(message.catalog)) {
     return { missingFields: '/context, /message, /catalog or /message/catalog is missing or empty' }
   }
-  const schemaValidation = validateSchemaRetailV2(context.domain.split(':')[1], constants.ON_SEARCH, data)
+  const schemaDomain = context.domain.split(':')[1]
+  logger.info(`checkOnsearch: calling schema validation with domain=${schemaDomain}, api=${constants.ON_SEARCH}`)
+  const schemaValidation = validateSchemaRetailV2(schemaDomain, constants.ON_SEARCH, data)
+  logger.info(`checkOnsearch: schema validation result:`, schemaValidation)
   let collect_payment_tags: any = {}
 
   setValue(`${ApiSequence.ON_SEARCH}_context`, context)
@@ -56,8 +60,12 @@ export const checkOnsearch = (data: any,flow?: string) => {
   }
   let errorObj: any = {}
 
+  logger.info(`checkOnsearch: checking if schema validation !== 'error': ${schemaValidation !== 'error'}`)
   if (schemaValidation !== 'error') {
+    logger.info(`checkOnsearch: adding schema errors to errorObj:`, schemaValidation)
     Object.assign(errorObj, schemaValidation)
+  } else {
+    logger.info(`checkOnsearch: schema validation passed, no schema errors to add`)
   }
 
   validateBapUri(context.bap_uri, context.bap_id, errorObj)
@@ -66,18 +74,20 @@ export const checkOnsearch = (data: any,flow?: string) => {
     errorObj['on_search_full_catalog_refresh'] =
       `Context transaction_id (${context.transaction_id}) and message_id (${context.message_id}) can't be the same.`
   }
-  try {
-    logger.info(`Comparing Message Ids of /${constants.SEARCH} and /${constants.ON_SEARCH}`)
-    if (!_.isEqual(getValue(`${ApiSequence.SEARCH}_msgId`), context.message_id)) {
-      errorObj[`${ApiSequence.ON_SEARCH}_msgId`] =
-        `Message Ids for /${constants.SEARCH} and /${constants.ON_SEARCH} api should be same`
+  if (!stateless) {
+    try {
+      logger.info(`Comparing Message Ids of /${constants.SEARCH} and /${constants.ON_SEARCH}`)
+      if (!_.isEqual(getValue(`${ApiSequence.SEARCH}_msgId`), context.message_id)) {
+        errorObj[`${ApiSequence.ON_SEARCH}_msgId`] =
+          `Message Ids for /${constants.SEARCH} and /${constants.ON_SEARCH} api should be same`
+      }
+    } catch (error: any) {
+      logger.error(`!!Error while checking message id for /${constants.ON_SEARCH}, ${error.stack}`)
     }
-  } catch (error: any) {
-    logger.error(`!!Error while checking message id for /${constants.ON_SEARCH}, ${error.stack}`)
-  }
 
-  if (!_.isEqual(data.context.domain.split(':')[1], getValue(`domain`))) {
-    errorObj[`Domain[${data.context.action}]`] = `Domain should be same in each action`
+    if (!_.isEqual(data.context.domain.split(':')[1], getValue(`domain`))) {
+      errorObj[`Domain[${data.context.action}]`] = `Domain should be same in each action`
+    }
   }
 
   const checkBap = checkBppIdOrBapId(context.bap_id)
@@ -97,7 +107,7 @@ export const checkOnsearch = (data: any,flow?: string) => {
   }
 
   setValue(`${ApiSequence.ON_SEARCH}`, data)
-  const searchContext: any = getValue(`${ApiSequence.SEARCH}_context`)
+  const searchContext: any = stateless ? null : getValue(`${ApiSequence.SEARCH}_context`)
 
   try {
     logger.info(`Storing BAP_ID and BPP_ID in /${constants.ON_SEARCH}`)

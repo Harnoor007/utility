@@ -35,7 +35,7 @@ import { FLOW } from '../../enum'
 // import { MenuTreeBuilder } from './fb_calculation/lower_upper_range/builder'
 // import { CatalogParser } from './fb_calculation/lower_upper_range/parser'
 
-export const checkOnsearchFullCatalogRefresh = (data: any,flow:string) => {
+export const checkOnsearchFullCatalogRefresh = (data: any, flow: string, stateless: boolean = false) => {
   if (!data || isObjectEmpty(data)) {
     return { [ApiSequence.ON_SEARCH]: 'JSON cannot be empty' }
   }
@@ -56,17 +56,19 @@ export const checkOnsearchFullCatalogRefresh = (data: any,flow:string) => {
     Object.assign(errorObj, schemaValidation)
   }
 
-  try {
-    logger.info(`Comparing Message Ids of /${constants.SEARCH} and /${constants.ON_SEARCH}`)
-    if (!_.isEqual(getValue(`${ApiSequence.SEARCH}_msgId`), context.message_id)) {
-      errorObj[`${ApiSequence.ON_SEARCH}_msgId`] =
-        `Message Ids for /${constants.SEARCH} and /${constants.ON_SEARCH} api should be same`
+  if (!stateless) {
+    try {
+      logger.info(`Comparing Message Ids of /${constants.SEARCH} and /${constants.ON_SEARCH}`)
+      if (!_.isEqual(getValue(`${ApiSequence.SEARCH}_msgId`), context.message_id)) {
+        errorObj[`${ApiSequence.ON_SEARCH}_msgId`] =
+          `Message Ids for /${constants.SEARCH} and /${constants.ON_SEARCH} api should be same`
+      }
+    } catch (error: any) {
+      logger.error(`!!Error while checking message id for /${constants.ON_SEARCH}, ${error.stack}`)
     }
-  } catch (error: any) {
-    logger.error(`!!Error while checking message id for /${constants.ON_SEARCH}, ${error.stack}`)
   }
 
-  if (!_.isEqual(data.context.domain.split(':')[1], getValue(`domain`))) {
+  if (!stateless && !_.isEqual(data.context.domain.split(':')[1], getValue(`domain`))) {
     errorObj[`Domain[${data.context.action}]`] = `Domain should be same in each action`
   }
 
@@ -89,7 +91,7 @@ export const checkOnsearchFullCatalogRefresh = (data: any,flow:string) => {
 
   setValue(`${ApiSequence.ON_SEARCH}`, data)
 
-  const searchContext: any = getValue(`${ApiSequence.SEARCH}_context`)
+  const searchContext: any = stateless ? null : getValue(`${ApiSequence.SEARCH}_context`)
 
   try {
     logger.info(`Storing BAP_ID and BPP_ID in /${constants.ON_SEARCH}`)

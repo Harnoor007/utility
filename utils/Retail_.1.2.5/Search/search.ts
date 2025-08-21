@@ -13,7 +13,7 @@ import {
 import _ from 'lodash'
 import { FLOW } from '../../enum'
 
-export const checkSearch = (data: any, msgIdSet: any, flow: any) => {
+export const checkSearch = (data: any, msgIdSet: any, flow: any, stateless: boolean = false) => {
   const errorObj: any = {}
   try {
     logger.info(`Checking JSON structure and required fields for ${ApiSequence.SEARCH} API`)
@@ -34,7 +34,9 @@ export const checkSearch = (data: any, msgIdSet: any, flow: any) => {
       return Object.keys(errorObj).length > 0 && errorObj
     }
 
-    const schemaValidation = validateSchemaRetailV2(data.context.domain.split(':')[1], constants.SEARCH, data)
+    const schemaDomain = data.context.domain.split(':')[1]
+    logger.info(`checkSearch: calling schema validation with domain=${schemaDomain}, api=${constants.SEARCH}`)
+    const schemaValidation = validateSchemaRetailV2(schemaDomain, constants.SEARCH, data)
 
     if (schemaValidation !== 'error') {
       Object.assign(errorObj, schemaValidation)
@@ -48,7 +50,7 @@ export const checkSearch = (data: any, msgIdSet: any, flow: any) => {
       logger.error(`!!Error while checking message id for /${constants.SEARCH}, ${error.stack}`)
     }
 
-    if (!_.isEqual(data.context.domain.split(':')[1], getValue(`domain`))) {
+    if (!stateless && !_.isEqual(data.context.domain.split(':')[1], getValue(`domain`))) {
       errorObj[`Domain[${data.context.action}]`] = `Domain should be same in each action`
     }
 
