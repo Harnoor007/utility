@@ -14,6 +14,7 @@ import { checkOnsearchFullCatalogRefresh as checkOnSearchRET11 } from '../../uti
 // Retail 1.2.0
 import { checkSearch as checkSearch120 } from '../../utils/Retail/Search/search'
 import { checkOnsearch as checkOnSearch120 } from '../../utils/Retail/Search/on_search'
+import validateFunctions from '../../shared/schemaValidatorV2'
 
 const controller = {
   validate: async (req: Request, res: Response): Promise<Response | void> => {
@@ -195,9 +196,11 @@ const controller = {
               if (domainShort === 'RET11') {
                 logger.info(`validateSingleAction: calling checkOnSearchRET11 for domain ${domainShort}`)
                 error = checkOnSearchRET11(fullData, flow, true)
+                error['ajv_schema_errors'] = validateFunctions.validate_schema_on_search_RET11_for_json(fullData)
               } else {
                 logger.info(`validateSingleAction: calling checkOnSearch125 for domain ${domainShort}`)
                 error = checkOnSearch125(fullData, flow, true)
+                error['ajv_schema_errors'] = validateFunctions.validate_schema_on_search_RET10_for_json(fullData)
               }
               logger.info(`validateSingleAction: on_search result:`, error)
               break
