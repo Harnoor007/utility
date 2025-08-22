@@ -36,92 +36,105 @@ import { ret1aJSON } from '../../../constants/ret1a'
 
 export const checkOnsearch = (data: any, flow?: string, stateless: boolean = false, validationType?: string) => {
   console.log('in this on_search 1.2.5')
-
-  if (!data || isObjectEmpty(data)) {
-    return { [ApiSequence.ON_SEARCH]: 'JSON cannot be empty' }
-  }
-
-  const { message, context } = data
-
-  if (!message || !context || !message.catalog || isObjectEmpty(message) || isObjectEmpty(message.catalog)) {
-    return { missingFields: '/context, /message, /catalog or /message/catalog is missing or empty' }
-  }
-  const schemaDomain = context.domain.split(':')[1]
-  logger.info(`checkOnsearch: calling schema validation with domain=${schemaDomain}, api=${constants.ON_SEARCH}`)
-  const schemaValidation = validateSchemaRetailV2(schemaDomain, constants.ON_SEARCH, data)
-  logger.info(`checkOnsearch: schema validation result:`, schemaValidation)
-  let collect_payment_tags: any = {}
-
-  setValue(`${ApiSequence.ON_SEARCH}_context`, context)
-  setValue(`${ApiSequence.ON_SEARCH}_message`, message)
-  const providerOffers: any[] = message?.catalog['bpp/providers']?.flatMap((provider: any) => provider?.offers || [])
-  if (providerOffers && providerOffers.length > 0) {
-    setValue(`${ApiSequence.ON_SEARCH}_offers`, providerOffers)
-  }
   let errorObj: any = {}
+  const schemaErrors: Record<string, any> = {}
+  const businessErrors: Record<string, any> = {}
 
-  logger.info(`checkOnsearch: checking if schema validation !== 'error': ${schemaValidation !== 'error'}`)
-  if (schemaValidation !== 'error') {
-    logger.info(`checkOnsearch: adding schema errors to errorObj:`, schemaValidation)
-    Object.assign(errorObj, schemaValidation)
-  } else {
-    logger.info(`checkOnsearch: schema validation passed, no schema errors to add`)
-  }
+  try {
+    logger.info(`Checking JSON structure and required fields for ${ApiSequence.ON_SEARCH} API with validationType: ${validationType || 'all'}`)
 
-  validateBapUri(context.bap_uri, context.bap_id, errorObj)
-  validateBppUri(context.bpp_uri, context.bpp_id, errorObj)
-  if (context.transaction_id == context.message_id) {
-    errorObj['on_search_full_catalog_refresh'] =
-      `Context transaction_id (${context.transaction_id}) and message_id (${context.message_id}) can't be the same.`
-  }
-  if (!stateless) {
-    try {
-      logger.info(`Comparing Message Ids of /${constants.SEARCH} and /${constants.ON_SEARCH}`)
-      if (!_.isEqual(getValue(`${ApiSequence.SEARCH}_msgId`), context.message_id)) {
-        errorObj[`${ApiSequence.ON_SEARCH}_msgId`] =
-          `Message Ids for /${constants.SEARCH} and /${constants.ON_SEARCH} api should be same`
+    if (!data || isObjectEmpty(data)) {
+      errorObj[ApiSequence.ON_SEARCH] = 'JSON cannot be empty'
+      return errorObj
+    }
+
+    const { message, context } = data
+    if (!message || !context || !message.catalog || isObjectEmpty(message) || isObjectEmpty(message.catalog)) {
+      errorObj['missingFields'] = '/context, /message, /catalog or /message/catalog is missing or empty'
+      return Object.keys(errorObj).length > 0 && errorObj
+    }
+
+    // Schema validation - run if validationType is not specified, is 'schema', or is not 'business'
+    if (!validationType || validationType === 'schema') {
+      const schemaDomain = context.domain.split(':')[1]
+      logger.info(`checkOnsearch: calling schema validation with domain=${schemaDomain}, api=${constants.ON_SEARCH}`)
+      const schemaValidation = validateSchemaRetailV2(schemaDomain, constants.ON_SEARCH, data)
+      logger.info(`checkOnsearch: schema validation result:`, schemaValidation)
+
+      logger.info(`checkOnsearch: checking if schema validation !== 'error': ${schemaValidation !== 'error'}`)
+      if (schemaValidation !== 'error') {
+        logger.info(`checkOnsearch: adding schema errors to schemaErrors:`, schemaValidation)
+        Object.assign(schemaErrors, schemaValidation)
+      } else {
+        logger.info(`checkOnsearch: schema validation passed, no schema errors to add`)
       }
-    } catch (error: any) {
-      logger.error(`!!Error while checking message id for /${constants.ON_SEARCH}, ${error.stack}`)
     }
 
-    if (!_.isEqual(data.context.domain.split(':')[1], getValue(`domain`))) {
-      errorObj[`Domain[${data.context.action}]`] = `Domain should be same in each action`
-    }
-  }
+    // Business logic validation - run if validationType is not specified, is 'business', or is not 'schema'
+    if (!validationType || validationType === 'business') {
+      let collect_payment_tags: any = {}
 
-  const checkBap = checkBppIdOrBapId(context.bap_id)
-  const checkBpp = checkBppIdOrBapId(context.bpp_id)
+      setValue(`${ApiSequence.ON_SEARCH}_context`, context)
+      setValue(`${ApiSequence.ON_SEARCH}_message`, message)
+      const providerOffers: any[] = message?.catalog['bpp/providers']?.flatMap((provider: any) => provider?.offers || [])
+      if (providerOffers && providerOffers.length > 0) {
+        setValue(`${ApiSequence.ON_SEARCH}_offers`, providerOffers)
+      }
 
-  if (checkBap) Object.assign(errorObj, { bap_id: 'context/bap_id should not be a url' })
-  if (checkBpp) Object.assign(errorObj, { bpp_id: 'context/bpp_id should not be a url' })
+      validateBapUri(context.bap_uri, context.bap_id, businessErrors)
+      validateBppUri(context.bpp_uri, context.bpp_id, businessErrors)
+      if (context.transaction_id == context.message_id) {
+        businessErrors['on_search_full_catalog_refresh'] =
+          `Context transaction_id (${context.transaction_id}) and message_id (${context.message_id}) can't be the same.`
+      }
+      if (!stateless) {
+        try {
+          logger.info(`Comparing Message Ids of /${constants.SEARCH} and /${constants.ON_SEARCH}`)
+          if (!_.isEqual(getValue(`${ApiSequence.SEARCH}_msgId`), context.message_id)) {
+            businessErrors[`${ApiSequence.ON_SEARCH}_msgId`] =
+              `Message Ids for /${constants.SEARCH} and /${constants.ON_SEARCH} api should be same`
+          }
+        } catch (error: any) {
+          logger.error(`!!Error while checking message id for /${constants.ON_SEARCH}, ${error.stack}`)
+        }
 
-  try {
-    logger.info(`Checking for context in /${constants.ON_SEARCH}`)
-    const contextRes: any = checkContext(context, constants.ON_SEARCH)
-    if (!contextRes?.valid) {
-      Object.assign(errorObj, contextRes.ERRORS)
-    }
-  } catch (error: any) {
-    logger.error(`Error while checking for context in /${constants.ON_SEARCH}, ${error.stack}`)
-  }
+        if (!_.isEqual(data.context.domain.split(':')[1], getValue(`domain`))) {
+          businessErrors[`Domain[${data.context.action}]`] = `Domain should be same in each action`
+        }
+      }
 
-  setValue(`${ApiSequence.ON_SEARCH}`, data)
-  const searchContext: any = stateless ? null : getValue(`${ApiSequence.SEARCH}_context`)
+      const checkBap = checkBppIdOrBapId(context.bap_id)
+      const checkBpp = checkBppIdOrBapId(context.bpp_id)
 
-  try {
-    logger.info(`Storing BAP_ID and BPP_ID in /${constants.ON_SEARCH}`)
-    setValue('bapId', context.bap_id)
-    setValue('bppId', context.bpp_id)
-  } catch (error: any) {
-    logger.error(`!!Error while storing BAP and BPP Ids in /${constants.ON_SEARCH}, ${error.stack}`)
-  }
+      if (checkBap) Object.assign(businessErrors, { bap_id: 'context/bap_id should not be a url' })
+      if (checkBpp) Object.assign(businessErrors, { bpp_id: 'context/bpp_id should not be a url' })
 
-  try {
-    logger.info(`Comparing transaction Ids of /${constants.SEARCH} and /${constants.ON_SEARCH}`)
-    if (!_.isEqual(searchContext.transaction_id, context.transaction_id)) {
-      errorObj.transaction_id = `Transaction Id for /${constants.SEARCH} and /${constants.ON_SEARCH} api should be same`
-    }
+      try {
+        logger.info(`Checking for context in /${constants.ON_SEARCH}`)
+        const contextRes: any = checkContext(context, constants.ON_SEARCH)
+        if (!contextRes?.valid) {
+          Object.assign(businessErrors, contextRes.ERRORS)
+        }
+      } catch (error: any) {
+        logger.error(`Error while checking for context in /${constants.ON_SEARCH}, ${error.stack}`)
+      }
+
+      setValue(`${ApiSequence.ON_SEARCH}`, data)
+      const searchContext: any = stateless ? null : getValue(`${ApiSequence.SEARCH}_context`)
+
+      try {
+        logger.info(`Storing BAP_ID and BPP_ID in /${constants.ON_SEARCH}`)
+        setValue('bapId', context.bap_id)
+        setValue('bppId', context.bpp_id)
+      } catch (error: any) {
+        logger.error(`!!Error while storing BAP and BPP Ids in /${constants.ON_SEARCH}, ${error.stack}`)
+      }
+
+      try {
+        logger.info(`Comparing transaction Ids of /${constants.SEARCH} and /${constants.ON_SEARCH}`)
+        if (!_.isEqual(searchContext.transaction_id, context.transaction_id)) {
+          businessErrors.transaction_id = `Transaction Id for /${constants.SEARCH} and /${constants.ON_SEARCH} api should be same`
+        }
   } catch (error: any) {
     logger.info(
       `Error while comparing transaction ids for /${constants.SEARCH} and /${constants.ON_SEARCH} api, ${error.stack}`,
@@ -249,7 +262,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
      
       provider.fulfillments.forEach((item: any) => {
         if(item.type!== "Buyer-Delivery"){
-          errorObj['missingFulfillmentType'] = `Fulfillment Type should be "Buyer-Delivery" for flow004 `
+          businessErrors['missingFulfillmentType'] = `Fulfillment Type should be "Buyer-Delivery" for flow004 `
         }
         
     
@@ -274,7 +287,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
       items.forEach((it: any) => {
         const timingTags = it.tags.find((item: any) => item.code === 'timing')
         if (timingTags) {
-          errorObj['missingAvailabilityTimings'] = `Item availability timings should be present in items tags with code as 'timing' /${constants.ON_SEARCH}`
+          businessErrors['missingAvailabilityTimings'] = `Item availability timings should be present in items tags with code as 'timing' /${constants.ON_SEARCH}`
         }
       })
     })}
@@ -293,21 +306,21 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
 
         if (replacementTerms !== undefined) {
           if (!Array.isArray(replacementTerms) || replacementTerms.length === 0) {
-            errorObj['on_search_full_catalog_refresh'] =
+            businessErrors['on_search_full_catalog_refresh'] =
               `replacement_terms must be a non-empty array if present for item ID '${item.id}'`
             return
           }
 
           for (const term of replacementTerms) {
             if (!term.hasOwnProperty('replace_within')) {
-              errorObj['on_search_full_catalog_refresh'] =
+              businessErrors['on_search_full_catalog_refresh'] =
                 `Missing 'replace_within' in replacement_terms for item ID '${item.id}'`
             }
 
             const duration = term.replace_within?.duration
 
             if (!duration || !isoDurationRegex.test(duration)) {
-              errorObj['on_search_full_catalog_refresh'] =
+              businessErrors['on_search_full_catalog_refresh'] =
                 `Invalid or missing ISO 8601 duration in replacement_terms for item ID '${item.id}'. Found: '${duration}'`
             }
           }
@@ -343,7 +356,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
           errors = checkMandatoryTags(i, items, errorObj, ret1aJSON, 'Automobile')
           break
       }
-      Object.assign(errorObj, errors)
+      Object.assign(businessErrors, errors)
     }
   } catch (error: any) {
     logger.error(`!!Errors while checking for items in bpp/providers/items, ${error.stack}`)
@@ -360,7 +373,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
         const op = areTimestampsLessThanOrEqualTo(itemTimeStamp, timestamp)
         if (!op) {
           const key = `bpp/providers[${i}]/items/time/timestamp[${index}]`
-          errorObj[key] = `Timestamp for item[${index}] can't be greater than context.timestamp`
+          businessErrors[key] = `Timestamp for item[${index}] can't be greater than context.timestamp`
           logger.error(`Timestamp for item[${index}] can't be greater than context.timestamp`)
         }
       })
@@ -378,7 +391,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
       const prvdr = onSearchCatalog['bpp/providers'][i]
       if (prvdrsId.has(prvdr.id)) {
         const key = `prvdr${i}id`
-        errorObj[key] = `duplicate provider id: ${prvdr.id} in bpp/providers`
+        businessErrors[key] = `duplicate provider id: ${prvdr.id} in bpp/providers`
       } else {
         prvdrsId.add(prvdr.id)
       }
@@ -399,7 +412,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
             `short_desc and long_desc should not be provided as empty string "" in /message/catalog/bpp/providers[${i}]/items[${index}]/descriptor`,
           )
           const key = `bpp/providers[${i}]/items[${index}]/descriptor`
-          errorObj[key] =
+          businessErrors[key] =
             `short_desc and long_desc should not be provided as empty string "" in /message/catalog/bpp/providers[${i}]/items[${index}]/descriptor`
         }
       })
@@ -421,7 +434,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
         if (!isCustomization && !item.descriptor.code) {
           logger.error(`code should be provided in /message/catalog/bpp/providers[${i}]/items[${index}]/descriptor`)
           const key = `bpp/providers[${i}]/items[${index}]/descriptor`
-          errorObj[key] = `code should provided in /message/catalog/bpp/providers[${i}]/items[${index}]/descriptor`
+          businessErrors[key] = `code should provided in /message/catalog/bpp/providers[${i}]/items[${index}]/descriptor`
         } else if (!isCustomization) {
           const itemCodeArr = item.descriptor.code.split(':')
           const itemDescType = itemCodeArr[0]
@@ -436,13 +449,13 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
               case '18':
                 if (itemDescType != '1') {
                   const key = `bpp/providers[${i}]/items[${index}]/descriptor/code`
-                  errorObj[key] =
+                  businessErrors[key] =
                     `code should have 1:EAN as a value in /message/catalog/bpp/providers[${i}]/items[${index}]/descriptor/code`
                 } else {
                   const regex = /^\d{8}$|^\d{13}$/
                   if (!regex.test(itemDescCode)) {
                     const key = `bpp/providers[${i}]/items[${index}]/descriptor/code`
-                    errorObj[key] =
+                    businessErrors[key] =
                       `code should provided in /message/catalog/bpp/providers[${i}]/items[${index}]/descriptor/code(${itemDescCode}) should be number and with either length 8 or 13`
                   }
                 }
@@ -452,12 +465,12 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
                   const regex = /^\d{4}$|^\d{6}$|^\d{8}$|^\d{10}$/
                   if (!regex.test(itemDescCode)) {
                     const key = `bpp/providers[${i}]/items[${index}]/descriptor/code`
-                    errorObj[key] =
+                    businessErrors[key] =
                       `code should provided in /message/catalog/bpp/providers[${i}]/items[${index}]/descriptor/code should be number and have a length 4, 6, 8 or 10.`
                   }
                 } else {
                   const key = `bpp/providers[${i}]/items[${index}]/descriptor/code`
-                  errorObj[key] =
+                  businessErrors[key] =
                     `code should have 4:HSN as a value in /message/catalog/bpp/providers[${i}]/items[${index}]/descriptor/code`
                 }
                 break
@@ -467,18 +480,18 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
                   const regex = /^\d{8}$|^\d{12}$|^\d{13}$|^\d{14}$/
                   if (!regex.test(itemDescCode)) {
                     const key = `bpp/providers[${i}]/items[${index}]/descriptor/code`
-                    errorObj[key] =
+                    businessErrors[key] =
                       `code should provided in /message/catalog/bpp/providers[${i}]/items[${index}]/descriptor/code should be number and have a length 8, 12, 13 or 14}.`
                   }
                 } else {
                   const key = `bpp/providers[${i}]/items[${index}]/descriptor/code`
-                  errorObj[key] =
+                  businessErrors[key] =
                     `code should have 3:GTIN as a value in /message/catalog/bpp/providers[${i}]/items[${index}]/descriptor/code`
                 }
                 break
               default:
                 const key = `bpp/providers[${i}]/items[${index}]/descriptor/code`
-                errorObj[key] =
+                businessErrors[key] =
                   `code should have a valid value in /message/catalog/bpp/providers[${i}]/items[${index}]/descriptor/code`
                 break
             }
@@ -518,7 +531,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
         categories.forEach((item: any, index: number) => {
           if (item.descriptor.images && item.descriptor.images.length < 1) {
             const key = `bpp/providers[${i}]/categories[${index}]/descriptor`
-            errorObj[key] = `Images should not be provided as empty array for categories[${index}]/descriptor`
+            businessErrors[key] = `Images should not be provided as empty array for categories[${index}]/descriptor`
             logger.error(`Images should not be provided as empty array for categories[${index}]/descriptor`)
           }
         })
@@ -537,29 +550,29 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
       if (tag.code === 'bpp_terms') {
         const npType = tag.list.find((item) => item.code === 'np_type')
         if (!npType) {
-          errorObj['bpp/descriptor'] = `Missing np_type in bpp/descriptor`
+          businessErrors['bpp/descriptor'] = `Missing np_type in bpp/descriptor`
           setValue(`${ApiSequence.ON_SEARCH}np_type`, '')
         } else {
           setValue(`${ApiSequence.ON_SEARCH}np_type`, npType.value)
         }
         const accept_bap_terms = tag.list.find((item) => item.code === 'accept_bap_terms')
         if (accept_bap_terms) {
-          errorObj['bpp/descriptor/accept_bap_terms'] =
+          businessErrors['bpp/descriptor/accept_bap_terms'] =
             `accept_bap_terms is not required in bpp/descriptor/tags for now `
         }
         // const collect_payment = tag.list.find((item) => item.code === 'collect_payment')
         // if (collect_payment) {
-        //   errorObj['bpp/descriptor/collect_payment'] = `collect_payment is not required in bpp/descriptor/tags for now `
+        //   businessErrors['bpp/descriptor/collect_payment'] = `collect_payment is not required in bpp/descriptor/tags for now `
         // }
       }
       if (flow === FLOW.FLOW007 || flow === FLOW.FLOW0099 || flow === OFFERSFLOW.FLOW0098) {
         collect_payment_tags = tag.list.find((item) => item.code === 'collect_payment')
         if (!collect_payment_tags) {
-          errorObj['bpp/descriptor/tags/collect_payment'] =
+          businessErrors['bpp/descriptor/tags/collect_payment'] =
             `collect_payment is required in bpp/descriptor/tags for on_search catalogue for flow: ${flow} `
         }
         if (!['Y', 'N'].includes(collect_payment_tags.value)) {
-          errorObj['bpp/descriptor/tags/collect_payment'] = `value must be "Y" or "N" for flow: ${flow}`
+          businessErrors['bpp/descriptor/tags/collect_payment'] = `value must be "Y" or "N" for flow: ${flow}`
         }
         setValue(collect_payment_tags.value, 'collect_payment')
       }
@@ -578,51 +591,51 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
       const offers = onSearchCatalog['bpp/providers'][i]?.offers ?? []
       if (!offers || !Array.isArray(offers)) {
         const key = `bpp/providers[${i}]/offers`
-        errorObj[key] = `Offers must be an array in bpp/providers[${i}]`
+        businessErrors[key] = `Offers must be an array in bpp/providers[${i}]`
         continue
       }
       if (offers.length > 0) {
         if (!offersApplicableDomains.includes(context.domain)) {
           const key = 'unsupportedDomain'
-          errorObj[key] = `Offers validation is only supported for domains: ${offersApplicableDomains.join(', ')}. Found: ${context.domain}`
+          businessErrors[key] = `Offers validation is only supported for domains: ${offersApplicableDomains.join(', ')}. Found: ${context.domain}`
           return
         }
         offers.forEach((offer: any, offerIndex: number) => {
           // Validate mandatory fields
           if (!offer.id) {
             const key = `bpp/providers[${i}]/offers[${offerIndex}]/id`
-            errorObj[key] = `Offer ID is mandatory for offers[${offerIndex}]`
+            businessErrors[key] = `Offer ID is mandatory for offers[${offerIndex}]`
             logger.error(`Offer ID is mandatory for offers[${offerIndex}]`)
           }
 
           if (!offer.descriptor || !offer.descriptor.code) {
             const key = `bpp/providers[${i}]/offers[${offerIndex}]/descriptor`
-            errorObj[key] = `Descriptor with code is mandatory for offers[${offerIndex}]`
+            businessErrors[key] = `Descriptor with code is mandatory for offers[${offerIndex}]`
             logger.error(`Descriptor with code is mandatory for offers[${offerIndex}]`)
           }
 
           if (!offer.location_ids || !Array.isArray(offer.location_ids) || offer.location_ids.length === 0) {
             const key = `bpp/providers[${i}]/offers[${offerIndex}]/location_ids`
-            errorObj[key] = `Location IDs array is mandatory for offers[${offerIndex}]`
+            businessErrors[key] = `Location IDs array is mandatory for offers[${offerIndex}]`
             logger.error(`Location IDs array is mandatory for offers[${offerIndex}]`)
           }
 
           if (!offer.item_ids || !Array.isArray(offer.item_ids) || offer.item_ids.length === 0) {
             const key = `bpp/providers[${i}]/offers[${offerIndex}]/item_ids`
-            errorObj[key] = `Item IDs array is mandatory for offers[${offerIndex}]`
+            businessErrors[key] = `Item IDs array is mandatory for offers[${offerIndex}]`
             logger.error(`Item IDs array is mandatory for offers[${offerIndex}]`)
           }
 
           if (!offer.time || !offer.time.label || !offer.time.range || !offer.time.range.start || !offer.time.range.end) {
             const key = `bpp/providers[${i}]/offers[${offerIndex}]/time`
-            errorObj[key] = `Time object with label and range (start/end) is mandatory for offers[${offerIndex}]`
+            businessErrors[key] = `Time object with label and range (start/end) is mandatory for offers[${offerIndex}]`
             logger.error(`Time object with label and range (start/end) is mandatory for offers[${offerIndex}]`)
           }
 
           const tags = offer.tags
           if (!tags || !Array.isArray(tags)) {
             const key = `bpp/providers[${i}]/offers[${offerIndex}]/tags`
-            errorObj[key] =
+            businessErrors[key] =
               `Tags must be provided for offers[${offerIndex}] with descriptor code '${offer.descriptor?.code}'`
             logger.error(
               `Tags must be provided for offers[${offerIndex}] with descriptor code '${offer.descriptor?.code}'`,
@@ -635,7 +648,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
             const len = metaTagsError.length
             while (i < len) {
               const key = `metaTagsError${i}`
-              errorObj[key] = `${metaTagsError[i]}`
+              businessErrors[key] = `${metaTagsError[i]}`
               i++
             }
           }
@@ -647,7 +660,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
               const qualifierDiscount = tags.find((tag: any) => tag.code === 'qualifier')
               if (!qualifierDiscount || !qualifierDiscount.list.some((item: any) => item.code === 'min_value')) {
                 const key = `bpp/providers[${i}]/offers[${offerIndex}]/tags[qualifier]`
-                errorObj[key] =
+                businessErrors[key] =
                   `'qualifier' tag must include 'min_value' for offers[${offerIndex}] when offer.descriptor.code = ${offer.descriptor.code}`
                 logger.error(`'qualifier' tag must include 'min_value' for offers[${offerIndex}]`)
               }
@@ -656,7 +669,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
               const benefitDiscount = tags.find((tag: any) => tag.code === 'benefit')
               if (!benefitDiscount) {
                 const key = `bpp/providers[${i}]/offers[${offerIndex}]/tags[benefit]`
-                errorObj[key] =
+                businessErrors[key] =
                   `'benefit' tag is required for offers[${offerIndex}] when offer.descriptor.code = ${offer.descriptor.code}`
                 logger.error(`'benefit' tag is required for offers[${offerIndex}]`)
               } else {
@@ -666,24 +679,24 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
 
                 if (!valueTypeItem) {
                   const key = `bpp/providers[${i}]/offers[${offerIndex}]/tags[benefit]/value_type`
-                  errorObj[key] = `'value_type' is required in benefit tag for offers[${offerIndex}]`
+                  businessErrors[key] = `'value_type' is required in benefit tag for offers[${offerIndex}]`
                   logger.error(`'value_type' is required in benefit tag for offers[${offerIndex}]`)
                 }
 
                 if (!valueItem) {
                   const key = `bpp/providers[${i}]/offers[${offerIndex}]/tags[benefit]/value`
-                  errorObj[key] = `'value' is required in benefit tag for offers[${offerIndex}]`
+                  businessErrors[key] = `'value' is required in benefit tag for offers[${offerIndex}]`
                   logger.error(`'value' is required in benefit tag for offers[${offerIndex}]`)
                 } else {
                   // Validate value is a proper number
                   const value = valueItem.value
                   if (isNaN(parseFloat(value)) || !/^-?\d+(\.\d+)?$/.test(value)) {
                     const key = `bpp/providers[${i}]/offers[${offerIndex}]/tags[benefit]/value`
-                    errorObj[key] = `'value' in benefit tag must be a valid number for offers[${offerIndex}]`
+                    businessErrors[key] = `'value' in benefit tag must be a valid number for offers[${offerIndex}]`
                     logger.error(`'value' in benefit tag must be a valid number for offers[${offerIndex}]`)
                   } else if (parseFloat(value) >= 0) {
                     const key = `bpp/providers[${i}]/offers[${offerIndex}]/tags[benefit]/value`
-                    errorObj[key] = `'value' in 'benefit' tag must be a negative amount for offers[${offerIndex}]`
+                    businessErrors[key] = `'value' in 'benefit' tag must be a negative amount for offers[${offerIndex}]`
                     logger.error(`'value' in 'benefit' tag must be a negative amount for offers[${offerIndex}]`)
                   }
                 }
@@ -693,7 +706,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
                   const valueCap = valueCapItem.value
                   if (isNaN(parseFloat(valueCap)) || !/^-?\d+(\.\d+)?$/.test(valueCap)) {
                     const key = `bpp/providers[${i}]/offers[${offerIndex}]/tags[benefit]/value_cap`
-                    errorObj[key] = `'value_cap' in benefit tag must be a valid number for offers[${offerIndex}]`
+                    businessErrors[key] = `'value_cap' in benefit tag must be a valid number for offers[${offerIndex}]`
                     logger.error(`'value_cap' in benefit tag must be a valid number for offers[${offerIndex}]`)
                   }
                 }
@@ -709,7 +722,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
                 !qualifierBuyXgetY.list.some((item: any) => item.code === 'item_count')
               ) {
                 const key = `bpp/providers[${i}]/offers[${offerIndex}]/tags[qualifier]`
-                errorObj[key] =
+                businessErrors[key] =
                   `'qualifier' tag must include 'min_value' and 'item_count' for offers[${offerIndex}] when offer.descriptor.code = ${offer.descriptor.code}`
                 logger.error(`'qualifier' tag must include 'min_value' and 'item_count' for offers[${offerIndex}]`)
               }
@@ -718,7 +731,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
               const benefitBuyXgetY = tags.find((tag: any) => tag.code === 'benefit')
               if (!benefitBuyXgetY || !benefitBuyXgetY.list.some((item: any) => item.code === 'item_count')) {
                 const key = `bpp/providers[${i}]/offers[${offerIndex}]/tags[benefit]`
-                errorObj[key] =
+                businessErrors[key] =
                   `'benefit' tag must include 'item_count' for offers[${offerIndex}] when offer.descriptor.code = ${offer.descriptor.code}`
                 logger.error(`'benefit' tag must include 'item_count' for offers[${offerIndex}]`)
               }
@@ -729,7 +742,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
               const qualifierFreebie = tags.find((tag: any) => tag.code === 'qualifier')
               if (!qualifierFreebie || !qualifierFreebie.list.some((item: any) => item.code === 'min_value')) {
                 const key = `bpp/providers[${i}]/offers[${offerIndex}]/tags[qualifier]`
-                errorObj[key] =
+                businessErrors[key] =
                   `'qualifier' tag must include 'min_value' for offers[${offerIndex}] when offer.descriptor.code = ${offer.descriptor.code}`
                 logger.error(`'qualifier' tag must include 'min_value' for offers[${offerIndex}]`)
               }
@@ -743,7 +756,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
                 !benefitFreebie.list.some((item: any) => item.code === 'item_value')
               ) {
                 const key = `bpp/providers[${i}]/offers[${offerIndex}]/tags[benefit]`
-                errorObj[key] =
+                businessErrors[key] =
                   `'benefit' tag must include 'item_count', 'item_id', and 'item_value' for offers[${offerIndex}] when offer.descriptor.code = ${offer.descriptor.code}`
                 logger.error(
                   `'benefit' tag must include 'item_count', 'item_id', and 'item_value' for offers[${offerIndex}]`,
@@ -756,7 +769,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
               const qualifierSlab = tags.find((tag: any) => tag.code === 'qualifier')
               if (!qualifierSlab || !qualifierSlab.list.some((item: any) => item.code === 'min_value')) {
                 const key = `bpp/providers[${i}]/offers[${offerIndex}]/tags[qualifier]`
-                errorObj[key] =
+                businessErrors[key] =
                   `'qualifier' tag must include 'min_value' for offers[${offerIndex}] when offer.descriptor.code = ${offer.descriptor.code}`
                 logger.error(`'qualifier' tag must include 'min_value' for offers[${offerIndex}]`)
               }
@@ -770,7 +783,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
                 !benefitSlab.list.some((item: any) => item.code === 'value_cap')
               ) {
                 const key = `bpp/providers[${i}]/offers[${offerIndex}]/tags[benefit]`
-                errorObj[key] =
+                businessErrors[key] =
                   `'benefit' tag must include 'value', 'value_type', and 'value_cap' for offers[${offerIndex}] when offer.descriptor.code = ${offer.descriptor.code}`
                 logger.error(
                   `'benefit' tag must include 'value', 'value_type', and 'value_cap' for offers[${offerIndex}]`,
@@ -787,7 +800,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
                 !qualifierCombo.list.some((item: any) => item.code === 'item_id')
               ) {
                 const key = `bpp/providers[${i}]/offers[${offerIndex}]/tags[qualifier]`
-                errorObj[key] =
+                businessErrors[key] =
                   `'qualifier' tag must include 'min_value' and 'item_id' for offers[${offerIndex}] when offer.descriptor.code = ${offer.descriptor.code}`
                 logger.error(`'qualifier' tag must include 'min_value' and 'item_id' for offers[${offerIndex}]`)
               }
@@ -801,7 +814,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
                 !benefitCombo.list.some((item: any) => item.code === 'value_cap')
               ) {
                 const key = `bpp/providers[${i}]/offers[${offerIndex}]/tags[benefit]`
-                errorObj[key] =
+                businessErrors[key] =
                   `'benefit' tag must include 'value', 'value_type', and 'value_cap' for offers[${offerIndex}] when offer.descriptor.code = ${offer.descriptor.code}`
                 logger.error(
                   `'benefit' tag must include 'value', 'value_type', and 'value_cap' for offers[${offerIndex}]`,
@@ -814,7 +827,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
               const qualifierDelivery = tags.find((tag: any) => tag.code === 'qualifier')
               if (!qualifierDelivery || !qualifierDelivery.list.some((item: any) => item.code === 'min_value')) {
                 const key = `bpp/providers[${i}]/offers[${offerIndex}]/tags[qualifier]`
-                errorObj[key] =
+                businessErrors[key] =
                   `'qualifier' tag must include 'min_value' for offers[${offerIndex}] when offer.descriptor.code = ${offer.descriptor.code}`
                 logger.error(`'qualifier' tag must include 'min_value' for offers[${offerIndex}]`)
               }
@@ -827,7 +840,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
                 !benefitDelivery.list.some((item: any) => item.code === 'value_type')
               ) {
                 const key = `bpp/providers[${i}]/offers[${offerIndex}]/tags[benefit]`
-                errorObj[key] =
+                businessErrors[key] =
                   `'benefit' tag must include 'value' and 'value_type' for offers[${offerIndex}] when offer.descriptor.code = ${offer.descriptor.code}`
                 logger.error(`'benefit' tag must include 'value' and 'value_type' for offers[${offerIndex}]`)
               }
@@ -838,7 +851,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
               // const qualifierExchange = tags.find((tag: any) => tag.code === 'qualifier')
               // if (!qualifierExchange || !qualifierExchange.list.some((item: any) => item.code === 'min_value')) {
               //   const key = `bpp/providers[${i}]/offers[${offerIndex}]/tags[qualifier]`
-              //   errorObj[key] =
+              //   businessErrors[key] =
               //     `'qualifier' tag must include 'min_value' for offers[${offerIndex}] when offer.descriptor.code = ${offer.descriptor.code}`
               //   logger.error(`'qualifier' tag must include 'min_value' for offers[${offerIndex}]`)
               // }
@@ -847,12 +860,12 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
               // const benefitExchange = tags.find((tag: any) => tag.code === 'benefit')
               // if (benefitExchange && benefitExchange.list.length > 0) {
               //   const key = `bpp/providers[${i}]/offers[${offerIndex}]/tags[benefit]`
-              //   errorObj[key] =
+              //   businessErrors[key] =
               //     `'benefit' tag must not include any values for offers[${offerIndex}] when offer.descriptor.code = ${offer.descriptor.code}`
               //   logger.error(`'benefit' tag must not include any values for offers[${offerIndex}]`)
               // }
               if (context.domain !== 'ONDC:RET14' || context.domain !== 'ONDC:RET15') {
-                errorObj['unsupportedDomain'] =
+                businessErrors['unsupportedDomain'] =
                   `exchange is not possible for ${context.domain} as supported domains are 'ONDC:RET14','ONDC:RET15' is required for flow: ${flow}`
               }
               break
@@ -865,7 +878,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
                   const len = financeTagsError.length
                   while (i < len) {
                     const key = `financeTagsError${i}`
-                    errorObj[key] = `${financeTagsError[i]}`
+                    businessErrors[key] = `${financeTagsError[i]}`
                     i++
                   }
                 }
@@ -894,7 +907,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
           const priceValue = parseFloat(item.price.value)
           if (priceValue < 1) {
             const key = `prvdr${i}item${j}price`
-            errorObj[key] = `item.price.value should be greater than 0`
+            businessErrors[key] = `item.price.value should be greater than 0`
           }
         }
       })
@@ -931,7 +944,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
         return providers.map((provider: any) => {
           const creds = provider?.creds
           if ((flow === FLOW.FLOW017 && creds === undefined) || creds.length === 0) {
-            errorObj['MissingCreds'] = `creds must be present in order in /${constants.ON_SEARCH}`
+            businessErrors['MissingCreds'] = `creds must be present in order in /${constants.ON_SEARCH}`
           }
 
           return {
@@ -951,15 +964,15 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
           const minCount = parseInt(item.quantity.minimum.count, 10)
           if (!minCount) {
             const key = `prvdr${i}item${j}minimum.count`
-            errorObj[key] = `item.quantity.minimum.count must be added , if not set default as 99 `
+            businessErrors[key] = `item.quantity.minimum.count must be added , if not set default as 99 `
           }
           if (item.quantity.unitized.measure.value < 1) {
             const key = `prvdr${i}item${j}unitized`
-            errorObj[key] = `item.quantity.unitized.measure.value should be greater than 0`
+            businessErrors[key] = `item.quantity.unitized.measure.value should be greater than 0`
           }
           if (availCount < 0 || maxCount < 0) {
             const key = `prvdr${i}item${j}invldCount`
-            errorObj[key] =
+            businessErrors[key] =
               `item.quantity.available.count and item.quantity.maximum.count should be greater than or equal to 0`
           }
         }
@@ -993,11 +1006,11 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
                 break
               default:
                 const key = `prvdr${i}item${j}statutoryReq`
-                errorObj[key] =
+                businessErrors[key] =
                   `The following item/category_id is not a valid one in bpp/providers for /${constants.ON_SEARCH}`
                 break
             }
-            Object.assign(errorObj, errors)
+            Object.assign(businessErrors, errors)
           }
         })
       })
@@ -1097,7 +1110,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
         try {
           if (prvdrLocId.has(loc?.id)) {
             const key = `prvdr${i}${loc.id}${iter}`
-            errorObj[key] = `duplicate location id: ${loc.id} in /bpp/providers[${i}]/locations[${iter}]`
+            businessErrors[key] = `duplicate location id: ${loc.id} in /bpp/providers[${i}]/locations[${iter}]`
           } else {
             prvdrLocId.add(loc.id)
           }
@@ -1108,7 +1121,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
             day = parseInt(day)
             if (isNaN(day) || day < 1 || day > 7) {
               const key = `prvdr${i}locdays${iter}`
-              errorObj[key] =
+              businessErrors[key] =
                 `store days (bpp/providers[${i}]/locations[${iter}]/time/days) should be in the format ("1,2,3,4,5,6,7") where 1- Monday and 7- Sunday`
             }
           })
@@ -1118,14 +1131,14 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
           //scenario 1: range =1 freq/times =1
           if (loc?.time?.range && (loc.time?.schedule?.frequency || loc.time?.schedule?.times)) {
             const key = `prvdr${i}loctime${iter}`
-            errorObj[key] =
+            businessErrors[key] =
               `Either one of fixed (range) or split (frequency and times) timings should be provided in /bpp/providers[${i}]/locations[${iter}]/time`
           }
 
           // scenario 2: range=0 freq || times =1
           if (!loc?.time?.range && (!loc?.time?.schedule?.frequency || !loc?.time?.schedule?.times)) {
             const key = `prvdr${i}loctime${iter}`
-            errorObj[key] =
+            businessErrors[key] =
               `Either one of fixed timings (range) or split timings (both frequency and times) should be provided in /bpp/providers[${i}]/locations[${iter}]/time`
           }
 
@@ -1159,7 +1172,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
           const currentDateObj = new Date(currentDate)
           if (dateObj.getTime() < currentDateObj.getTime()) {
             const key = `/message/catalog/bpp/providers/loc${i}/time/schedule/holidays`
-            errorObj[key] = `Holidays cannot be past ${currentDate}`
+            businessErrors[key] = `Holidays cannot be past ${currentDate}`
           }
         })
       } catch (e) {
@@ -1172,7 +1185,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
         const categories = onSearchCatalog['bpp/providers'][i]['categories']
         if (!categories || !categories.length) {
           const key = `prvdr${i}categories`
-          errorObj[key] = `Support for variants is mandatory, categories must be present in bpp/providers[${i}]`
+          businessErrors[key] = `Support for variants is mandatory, categories must be present in bpp/providers[${i}]`
         }
         const iLen = categories?.length
         while (j < iLen) {
@@ -1184,13 +1197,13 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
 
           if (!isValidPhoneNumber(phoneNumber)) {
             const key = `bpp/providers${i}fulfillments${i}`
-            errorObj[key] =
+            businessErrors[key] =
               `Please enter a valid phone number consisting of  10 or  11 digits without any spaces or special characters. `
           }
 
           if (categoriesId.has(category.id)) {
             const key = `prvdr${i}category${j}`
-            errorObj[key] = `duplicate category id: ${category.id} in bpp/providers[${i}]`
+            businessErrors[key] = `duplicate category id: ${category.id} in bpp/providers[${i}]`
           } else {
             categoriesId.add(category.id)
           }
@@ -1207,7 +1220,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
 
                     if (!isValid) {
                       const key = `prvdr${i}category${j}tags${index}`
-                      errorObj[key] =
+                      businessErrors[key] =
                         `list.code == attr then name should be 'item.quantity.unitized.measure' or 'item.tags.attribute.{object.keys}' in bpp/providers[${i}]`
                     }
                   }
@@ -1222,7 +1235,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
                     )
                   ) {
                     const key = `prvdr${i}category${j}tags${index}`
-                    errorObj[key] =
+                    businessErrors[key] =
                       `list.code == type then value should be one of 'custom_menu','custom_group' and 'variant_group' in bpp/providers[${i}]`
                   }
 
@@ -1282,7 +1295,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
                     } else {
                       if (categoryRankSet.has(category.id)) {
                         const key = `prvdr${i}category${j}rank`
-                        errorObj[key] = `duplicate rank in category id: ${category.id} in bpp/providers[${i}]`
+                        businessErrors[key] = `duplicate rank in category id: ${category.id} in bpp/providers[${i}]`
                       } else {
                         categoryRankSet.add(category.id)
                       }
@@ -1297,27 +1310,27 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
                   const seqItem: any = tag.list.find((item: { code: string }) => item.code === 'seq')
 
                   if (!minItem || !maxItem) {
-                    errorObj[`customization_config_${j}`] =
+                    businessErrors[`customization_config_${j}`] =
                       `Both 'min' and 'max' values are required in 'config' at index: ${j}`
                   }
 
                   if (!/^-?\d+(\.\d+)?$/.test(minItem.value)) {
-                    errorObj[`customization_config_min_${j}`] =
+                    businessErrors[`customization_config_min_${j}`] =
                       `Invalid value for ${minItem.code}: ${minItem.value} at index: ${j}`
                   }
 
                   if (!/^-?\d+(\.\d+)?$/.test(maxItem.value)) {
-                    errorObj[`customization_config_max_${j}`] =
+                    businessErrors[`customization_config_max_${j}`] =
                       `Invalid value for ${maxItem.code}: ${maxItem.value}at index: ${j}`
                   }
 
                   if (!/^-?\d+(\.\d+)?$/.test(seqItem.value)) {
-                    errorObj[`config_seq_${j}`] = `Invalid value for ${seqItem.code}: ${seqItem.value} at index: ${j}`
+                    businessErrors[`config_seq_${j}`] = `Invalid value for ${seqItem.code}: ${seqItem.value} at index: ${j}`
                   }
 
                   const inputEnum = ['select', 'text']
                   if (!inputEnum.includes(inputItem.value)) {
-                    errorObj[`config_input_${j}`] =
+                    businessErrors[`config_input_${j}`] =
                       `Invalid value for 'input': ${inputItem.value}, it should be one of ${inputEnum} at index: ${j}`
                   }
 
@@ -1349,13 +1362,13 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
             // Flow is 002 => Self-Pickup fulfillment is required
             if (!hasSelfPickupFulfillment) {
               const key = `prvdr${i}fulfillment_self_pickup_required`
-              errorObj[key] = `Provider[${i}] with flow=002 must have at least one fulfillment of type 'Self-Pickup'`
+              businessErrors[key] = `Provider[${i}] with flow=002 must have at least one fulfillment of type 'Self-Pickup'`
             }
           } else {
             // For all other flows => Self-Pickup timing tag is required and must be valid
             if (!selfPickupTag) {
               const key = `prvdr${i}tag_self_pickup_required`
-              errorObj[key] = `Provider[${i}] with flow≠002 must have a 'timing' tag with list.type='Self-Pickup'`
+              businessErrors[key] = `Provider[${i}] with flow≠002 must have a 'timing' tag with list.type='Self-Pickup'`
             } else {
               // const timingKeys = ['day_from', 'day_to', 'time_from', 'time_to']
               const tagListMap = Object.fromEntries(selfPickupTag.list.map((t: any) => [t.code, t.value]))
@@ -1365,12 +1378,12 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
 
                 if (!prvdrLocId.has(locationId)) {
                   const key = `prvdr${i}tag_timing_invalid_location`
-                  errorObj[key] =
+                  businessErrors[key] =
                     `'location' in Self-Pickup timing tag must match one of the provider[${i}]'s location ids`
                 }
               } else {
                 const key = `prvdr${i}tag_timing_missing_location`
-                errorObj[key] = `'location' is missing in Self-Pickup timing tag for provider[${i}]`
+                businessErrors[key] = `'location' is missing in Self-Pickup timing tag for provider[${i}]`
               }
 
               // Validate day_from/to are between 1 and 7
@@ -1378,7 +1391,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
                 const val = parseInt(tagListMap[code])
                 if (isNaN(val) || val < 1 || val > 7) {
                   const key = `prvdr${i}tag_timing_invalid_${code}`
-                  errorObj[key] = `Invalid value for ${code}: ${tagListMap[code]} in Self-Pickup timing tag`
+                  businessErrors[key] = `Invalid value for ${code}: ${tagListMap[code]} in Self-Pickup timing tag`
                 }
               })
 
@@ -1387,7 +1400,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
                 const val = tagListMap[code]
                 if (!/^([01]\d|2[0-3])[0-5]\d$/.test(val)) {
                   const key = `prvdr${i}tag_timing_invalid_${code}`
-                  errorObj[key] = `Invalid format for ${code}: ${val} in Self-Pickup timing tag (expected HHMM)`
+                  businessErrors[key] = `Invalid format for ${code}: ${val} in Self-Pickup timing tag (expected HHMM)`
                 }
               })
 
@@ -1396,7 +1409,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
               const tTo = parseInt(tagListMap['time_to'])
               if (!isNaN(tFrom) && !isNaN(tTo) && tTo <= tFrom) {
                 const key = `prvdr${i}tag_timing_time_order`
-                errorObj[key] = `'time_to' (${tTo}) must be greater than 'time_from' (${tFrom}) for Self-Pickup`
+                businessErrors[key] = `'time_to' (${tTo}) must be greater than 'time_from' (${tFrom}) for Self-Pickup`
               }
             }
           }
@@ -1417,7 +1430,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
 
           if (itemsId.has(item.id)) {
             const key = `prvdr${i}item${j}`
-            errorObj[key] = `duplicate item id: ${item.id} in bpp/providers[${i}]`
+            businessErrors[key] = `duplicate item id: ${item.id} in bpp/providers[${i}]`
           } else {
             itemsId.add(item.id)
           }
@@ -1433,14 +1446,14 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
 
                 if (seqSet.has(seq)) {
                   const key = `prvdr${i}item${j}ctgryseq${index}`
-                  errorObj[key] = `duplicate seq : ${seq} in category_ids in prvdr${i}item${j}`
+                  businessErrors[key] = `duplicate seq : ${seq} in category_ids in prvdr${i}item${j}`
                 } else {
                   seqSet.add(seq)
                 }
 
                 if (!categoriesId.has(categoryId)) {
                   const key = `prvdr${i}item${j}ctgryId${index}`
-                  errorObj[key] = `item${j} should have category_ids one of the Catalog/categories/id`
+                  businessErrors[key] = `item${j} should have category_ids one of the Catalog/categories/id`
                 }
               })
             }
@@ -1457,7 +1470,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
             if (context.domain === 'ONDC:RET18') {
               if (!statutory_reqs_prepackaged_food.ingredients_info) {
                 const key = `prvdr${i}items${j}@ondc/org/statutory_reqs_prepackaged_food`
-                errorObj[key] =
+                businessErrors[key] =
                   `In ONDC:RET18 for @ondc/org/statutory_reqs_prepackaged_food  ingredients_info is a valid field `
               }
             } else if (context.domain === 'ONDC:RET10') {
@@ -1471,7 +1484,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
               mandatoryFields.forEach((field) => {
                 if (statutory_reqs_prepackaged_food && !statutory_reqs_prepackaged_food[field]) {
                   const key = `prvdr${i}items${j}@ondc/org/statutory_reqs_prepackaged_food`
-                  errorObj[key] =
+                  businessErrors[key] =
                     `In ONDC:RET10 @ondc/org/statutory_reqs_prepackaged_food following fields are valid and required 'nutritional_info', 'additives_info','other_FSSAI_license_no',
                     'brand_owner_FSSAI_license_no','importer_FSSAI_license_no'`
                 }
@@ -1487,7 +1500,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
               const availCount = parseInt(item.quantity.available.count, 10)
               if (availCount == 99 && maxCount <= 0) {
                 const key = `prvdr${i}item${j}maxCount`
-                errorObj[key] =
+                businessErrors[key] =
                   `item.quantity.maximum.count should be either default value 99 (no cap per order) or any other positive value (cap per order) in /bpp/providers[${i}]/items[${j}]`
               }
             }
@@ -1501,7 +1514,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
               const availCount = parseInt(item.quantity.available.count, 10)
               if (availCount == 99 && maxCount == 0) {
                 const key = `prvdr${i}item${j}maxCount`
-                errorObj[key] = `item.quantity.maximum.count cant be 0 if item is in stock `
+                businessErrors[key] = `item.quantity.maximum.count cant be 0 if item is in stock `
               }
             }
           } catch (error: any) {
@@ -1515,7 +1528,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
 
               if (sPrice > maxPrice) {
                 const key = `prvdr${i}item${j}Price`
-                errorObj[key] =
+                businessErrors[key] =
                   `selling price of item /price/value with id: (${item.id}) can't be greater than the maximum price /price/maximum_value in /bpp/providers[${i}]/items[${j}]/`
               }
             }
@@ -1532,7 +1545,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
 
               if (upper > lower) {
                 const key = `prvdr${i}item${j}Price/tags/list`
-                errorObj[key] =
+                businessErrors[key] =
                   `selling lower range of item /price/range/value with id: (${item.id}) can't be greater than the upper in /bpp/providers[${i}]/items[${j}]/`
               }
             }
@@ -1543,7 +1556,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
           try {
             if (item.fulfillment_id && !onSearchFFIdsArray[i].has(item.fulfillment_id)) {
               const key = `prvdr${i}item${j}ff`
-              errorObj[key] =
+              businessErrors[key] =
                 `fulfillment_id in /bpp/providers[${i}]/items[${j}] should map to one of the fulfillments id in bpp/prvdr${i}/fulfillments`
             }
           } catch (error: any) {
@@ -1555,7 +1568,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
 
             if (item.location_id && !prvdrLocId.has(item.location_id)) {
               const key = `prvdr${i}item${j}loc`
-              errorObj[key] =
+              businessErrors[key] =
                 `location_id in /bpp/providers[${i}]/items[${j}] should be one of the locations id in /bpp/providers[${i}]/locations`
             }
           } catch (error: any) {
@@ -1585,14 +1598,14 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
                 // Validation: Ensure that default_selection.value matches selling price of customization + item
                 if (defaultSelection.value !== expectedSellingPrice) {
                   const key = `item${item.id}CustomTags/default_selection/value`
-                  errorObj[key] =
+                  businessErrors[key] =
                     `The selling price of customization + item for id: ${item.id} does not match the expected value (${expectedSellingPrice}).`
                 }
 
                 // Validation: Ensure that default_selection.maximum_value matches MRP of customization + item
                 if (defaultSelection.maximum_value !== expectedMRP) {
                   const key = `item${item.id}CustomTags/default_selection/maximum_value`
-                  errorObj[key] =
+                  businessErrors[key] =
                     `The MRP of customization + item for id: ${item.id} does not match the expected MRP (${expectedMRP}).`
                 }
 
@@ -1612,19 +1625,19 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
 
               if (!isValidPhoneNumber(consCare[2])) {
                 const key = `prvdr${i}consCare`
-                errorObj[key] =
+                businessErrors[key] =
                   `@ondc/org/contact_details_consumer_care contactno should consist of  10 or  11 digits without any spaces or special characters in /bpp/providers[${i}]/items`
               }
 
               if (consCare.length < 3) {
                 const key = `prvdr${i}consCare`
-                errorObj[key] =
+                businessErrors[key] =
                   `@ondc/org/contact_details_consumer_care should be in the format "name,email,contactno" in /bpp/providers[${i}]/items`
               } else {
                 const checkEmail: boolean = emailRegex(consCare[1].trim())
                 if (isNaN(consCare[2].trim()) || !checkEmail) {
                   const key = `prvdr${i}consCare`
-                  errorObj[key] =
+                  businessErrors[key] =
                     `@ondc/org/contact_details_consumer_care email should be in /bpp/providers[${i}]/items`
                 }
               }
@@ -1647,7 +1660,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
                   ) {
                     if (!item.time) {
                       const key = `prvdr${i}item${j}time`
-                      errorObj[key] = `item_id: ${item.id} should contain time object in bpp/providers[${i}]`
+                      businessErrors[key] = `item_id: ${item.id} should contain time object in bpp/providers[${i}]`
                     }
                   }
 
@@ -1657,7 +1670,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
                   tag.list.map((it: { code: string; value: string }, index: number) => {
                     if (!customGrpId.has(it.value)) {
                       const key = `prvdr${i}item${j}tag${index}cstmgrp_id`
-                      errorObj[key] =
+                      businessErrors[key] =
                         `item_id: ${item.id} should have custom_group_id one of the ids passed in categories bpp/providers[${i}]`
                     }
                   })
@@ -1672,23 +1685,23 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
 
                   if (!categoriesId.has(idList.value)) {
                     const key = `prvdr${i}item${j}tags${index}config_list`
-                    errorObj[key] =
+                    businessErrors[key] =
                       `value in catalog/items${j}/tags${index}/config/list/ should be one of the catalog/category/ids`
                   }
 
                   if (!/^-?\d+(\.\d+)?$/.test(minList.value)) {
                     const key = `prvdr${i}item${j}tags${index}config_min`
-                    errorObj[key] = `Invalid value for ${minList.code}: ${minList.value}`
+                    businessErrors[key] = `Invalid value for ${minList.code}: ${minList.value}`
                   }
 
                   if (!/^-?\d+(\.\d+)?$/.test(maxList.value)) {
                     const key = `prvdr${i}item${j}tags${index}config_max`
-                    errorObj[key] = `Invalid value for ${maxList.code}: ${maxList.value}`
+                    businessErrors[key] = `Invalid value for ${maxList.code}: ${maxList.value}`
                   }
 
                   if (!/^-?\d+(\.\d+)?$/.test(seqList.value)) {
                     const key = `prvdr${i}item${j}tags${index}config_seq`
-                    errorObj[key] = `Invalid value for ${seqList.code}: ${seqList.value}`
+                    businessErrors[key] = `Invalid value for ${seqList.code}: ${seqList.value}`
                   }
 
                   break
@@ -1701,7 +1714,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
                         const dayValue = parseInt(item.value)
                         if (isNaN(dayValue) || dayValue < 1 || dayValue > 5 || !/^-?\d+(\.\d+)?$/.test(item.value)) {
                           const key = `prvdr${i}item${j}tags${index}timing_day`
-                          errorObj[key] = `Invalid value for '${item.code}': ${item.value}`
+                          businessErrors[key] = `Invalid value for '${item.code}': ${item.value}`
                         }
 
                         break
@@ -1709,7 +1722,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
                       case 'time_to':
                         if (!/^([01]\d|2[0-3])[0-5]\d$/.test(item.value)) {
                           const key = `prvdr${i}item${j}tags${index}timing_time`
-                          errorObj[key] = `Invalid time format for '${item.code}': ${item.value}`
+                          businessErrors[key] = `Invalid time format for '${item.code}': ${item.value}`
                         }
 
                         break
@@ -1731,12 +1744,12 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
 
                     if (dayTo < dayFrom) {
                       const key = `prvdr${i}item${j}tags${index}timing_dayfrom`
-                      errorObj[key] = "'day_to' must be greater than or equal to 'day_from'"
+                      businessErrors[key] = "'day_to' must be greater than or equal to 'day_from'"
                     }
 
                     if (timeTo <= timeFrom) {
                       const key = `prvdr${i}item${j}tags${index}timing_timefrom`
-                      errorObj[key] = "'time_to' must be greater than 'time_from'"
+                      businessErrors[key] = "'time_to' must be greater than 'time_from'"
                     }
                   }
 
@@ -1748,7 +1761,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
                   for (const it of tag.list) {
                     if (it.code && !allowedCodes.includes(it.code)) {
                       const key = `prvdr${i}item${j}tag${index}veg_nonveg`
-                      errorObj[key] =
+                      businessErrors[key] =
                         `item_id: ${item.id} should have veg_nonveg one of the 'veg', 'non_veg' in bpp/providers[${i}]`
                     }
                   }
@@ -1771,7 +1784,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
         const rankSeq = isSequenceValid(seqSet)
         if (rankSeq === false) {
           const key = `prvdr${i}ctgry_tags`
-          errorObj[key] = `rank should be in sequence provided in bpp/providers[${i}]/categories/tags/display`
+          businessErrors[key] = `rank should be in sequence provided in bpp/providers[${i}]/categories/tags/display`
         }
       } catch (error: any) {
         logger.error(`!!Errors while checking rank in bpp/providers[${i}].category.tags, ${error.stack}`)
@@ -1783,7 +1796,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
         const tags = onSearchCatalog['bpp/providers'][i]['tags']
         if (!tags || !tags.length) {
           const key = `prvdr${i}tags`
-          errorObj[key] = `tags must be present in bpp/providers[${i}]`
+          businessErrors[key] = `tags must be present in bpp/providers[${i}]`
         }
 
         if (tags) {
@@ -1801,7 +1814,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
           if (sc.code === 'serviceability') {
             if (serviceabilitySet.has(JSON.stringify(sc))) {
               const key = `prvdr${i}tags${t}`
-              errorObj[key] =
+              businessErrors[key] =
                 `serviceability construct /bpp/providers[${i}]/tags[${t}] should not be same with the previous serviceability constructs`
             }
 
@@ -1809,7 +1822,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
             if ('list' in sc) {
               if (sc.list.length < 5) {
                 const key = `prvdr${i}tags${t}`
-                errorObj[key] =
+                businessErrors[key] =
                   `serviceability construct /bpp/providers[${i}]/tags[${t}] should be defined as per the API contract`
               }
 
@@ -1817,17 +1830,17 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
               const loc = sc.list.find((elem: any) => elem && elem.code === 'location')
               if (!loc) {
                 const key = `prvdr${i}tags${t}loc`
-                errorObj[key] =
+                businessErrors[key] =
                   `serviceability construct /bpp/providers[${i}]/tags[${t}] should be defined as per the API contract (location is missing)`
               } else if (typeof loc === 'object' && 'value' in loc) {
                 if (!prvdrLocId.has(loc.value)) {
                   const key = `prvdr${i}tags${t}loc`
-                  errorObj[key] =
+                  businessErrors[key] =
                     `location in serviceability construct should be one of the location ids bpp/providers[${i}]/locations`
                 }
               } else {
                 const key = `prvdr${i}tags${t}loc`
-                errorObj[key] =
+                businessErrors[key] =
                   `serviceability construct /bpp/providers[${i}]/tags[${t}] should be defined as per the API contract (location is missing)`
               }
 
@@ -1835,17 +1848,17 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
               const ctgry = sc.list.find((elem: any) => elem && elem.code === 'category')
               if (!ctgry) {
                 const key = `prvdr${i}tags${t}ctgry`
-                errorObj[key] =
+                businessErrors[key] =
                   `serviceability construct /bpp/providers[${i}]/tags[${t}] should be defined as per the API contract (category is missing)`
               } else if (typeof ctgry === 'object' && 'value' in ctgry) {
                 if (!itemCategory_id.has(ctgry.value)) {
                   const key = `prvdr${i}tags${t}ctgry`
-                  errorObj[key] =
+                  businessErrors[key] =
                     `category in serviceability construct should be one of the category ids bpp/providers[${i}]/items/category_id`
                 }
               } else {
                 const key = `prvdr${i}tags${t}ctgry`
-                errorObj[key] =
+                businessErrors[key] =
                   `serviceability construct /bpp/providers[${i}]/tags[${t}] should be defined as per the API contract (category is missing)`
               }
 
@@ -1853,7 +1866,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
               const type = sc.list.find((elem: any) => elem && elem.code === 'type')
               if (!type) {
                 const key = `prvdr${i}tags${t}type`
-                errorObj[key] =
+                businessErrors[key] =
                   `serviceability construct /bpp/providers[${i}]/tags[${t}] should be defined as per the API contract (type is missing)`
               } else if (typeof type === 'object' && 'value' in type) {
                 switch (type.value) {
@@ -1865,17 +1878,17 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
                       const val = sc.list.find((elem: any) => elem && elem.code === 'val')
                       if (!val) {
                         const key = `prvdr${i}tags${t}val`
-                        errorObj[key] =
+                        businessErrors[key] =
                           `serviceability construct /bpp/providers[${i}]/tags[${t}] should be defined as per the API contract (value is missing for code "val")`
                       } else if (typeof val === 'object' && 'value' in val) {
                         if (isNaN(val.value)) {
                           const key = `prvdr${i}tags${t}valvalue`
-                          errorObj[key] =
+                          businessErrors[key] =
                             `value should be a number (code:"val") for type 10 (hyperlocal) in /bpp/providers[${i}]/tags[${t}]`
                         }
                       } else {
                         const key = `prvdr${i}tags${t}val`
-                        errorObj[key] =
+                        businessErrors[key] =
                           `serviceability construct /bpp/providers[${i}]/tags[${t}] should be defined as per the API contract (value is missing for code "val")`
                       }
 
@@ -1883,17 +1896,17 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
                       const unit = sc.list.find((elem: any) => elem && elem.code === 'unit')
                       if (!unit) {
                         const key = `prvdr${i}tags${t}unit`
-                        errorObj[key] =
+                        businessErrors[key] =
                           `serviceability construct /bpp/providers[${i}]/tags[${t}] should be defined as per the API contract (value is missing for code "unit")`
                       } else if (typeof unit === 'object' && 'value' in unit) {
                         if (unit.value != 'km') {
                           const key = `prvdr${i}tags${t}unitvalue`
-                          errorObj[key] =
+                          businessErrors[key] =
                             `value should be "km" (code:"unit") for type 10 (hyperlocal) in /bpp/providers[${i}]/tags[${t}]`
                         }
                       } else {
                         const key = `prvdr${i}tags${t}unit`
-                        errorObj[key] =
+                        businessErrors[key] =
                           `serviceability construct /bpp/providers[${i}]/tags[${t}] should be defined as per the API contract (value is missing for code "unit")`
                       }
                     }
@@ -1907,20 +1920,20 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
                       const val = sc.list.find((elem: any) => elem && elem.code === 'val')
                       if (!val) {
                         const key = `prvdr${i}tags${t}val`
-                        errorObj[key] =
+                        businessErrors[key] =
                           `serviceability construct /bpp/providers[${i}]/tags[${t}] should be defined as per the API contract (value is missing for code "val")`
                       } else if (typeof val === 'object' && 'value' in val) {
                         const pincodes = val.value.split(/,|-/)
                         pincodes.forEach((pincode: any) => {
                           if (isNaN(pincode) || pincode.length != 6) {
                             const key = `prvdr${i}tags${t}valvalue`
-                            errorObj[key] =
+                            businessErrors[key] =
                               `value should be a valid range of pincodes (code:"val") for type 11 (intercity) in /bpp/providers[${i}]/tags[${t}]`
                           }
                         })
                       } else {
                         const key = `prvdr${i}tags${t}val`
-                        errorObj[key] =
+                        businessErrors[key] =
                           `serviceability construct /bpp/providers[${i}]/tags[${t}] should be defined as per the API contract (value is missing for code "val")`
                       }
 
@@ -1928,17 +1941,17 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
                       const unit = sc.list.find((elem: any) => elem && elem.code === 'unit')
                       if (!unit) {
                         const key = `prvdr${i}tags${t}unit`
-                        errorObj[key] =
+                        businessErrors[key] =
                           `serviceability construct /bpp/providers[${i}]/tags[${t}] should be defined as per the API contract (value is missing for code "unit")`
                       } else if (typeof unit === 'object' && 'value' in unit) {
                         if (unit.value != 'pincode') {
                           const key = `prvdr${i}tags${t}unitvalue`
-                          errorObj[key] =
+                          businessErrors[key] =
                             `value should be "pincode" (code:"unit") for type 11 (intercity) in /bpp/providers[${i}]/tags[${t}]`
                         }
                       } else {
                         const key = `prvdr${i}tags${t}unit`
-                        errorObj[key] =
+                        businessErrors[key] =
                           `serviceability construct /bpp/providers[${i}]/tags[${t}] should be defined as per the API contract (value is missing for code "unit")`
                       }
                     }
@@ -1952,17 +1965,17 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
                       const val = sc.list.find((elem: any) => elem && elem.code === 'val')
                       if (!val) {
                         const key = `prvdr${i}tags${t}val`
-                        errorObj[key] =
+                        businessErrors[key] =
                           `serviceability construct /bpp/providers[${i}]/tags[${t}] should be defined as per the API contract (value is missing for code "val")`
                       } else if (typeof val === 'object' && 'value' in val) {
                         if (val.value != 'IND') {
                           const key = `prvdr${i}tags${t}valvalue`
-                          errorObj[key] =
+                          businessErrors[key] =
                             `value should be "IND" (code:"val") for type 12 (PAN India) in /bpp/providers[${i}]tags[${t}]`
                         }
                       } else {
                         const key = `prvdr${i}tags${t}val`
-                        errorObj[key] =
+                        businessErrors[key] =
                           `serviceability construct /bpp/providers[${i}]/tags[${t}] should be defined as per the API contract (value is missing for code "val")`
                       }
 
@@ -1970,17 +1983,17 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
                       const unit = sc.list.find((elem: any) => elem && elem.code === 'unit')
                       if (!unit) {
                         const key = `prvdr${i}tags${t}unit`
-                        errorObj[key] =
+                        businessErrors[key] =
                           `serviceability construct /bpp/providers[${i}]/tags[${t}] should be defined as per the API contract (value is missing for code "unit")`
                       } else if (typeof unit === 'object' && 'value' in unit) {
                         if (unit.value != 'country') {
                           const key = `prvdr${i}tags${t}unitvalue`
-                          errorObj[key] =
+                          businessErrors[key] =
                             `value should be "country" (code:"unit") for type 12 (PAN India) in /bpp/providers[${i}]tags[${t}]`
                         }
                       } else {
                         const key = `prvdr${i}tags${t}unit`
-                        errorObj[key] =
+                        businessErrors[key] =
                           `serviceability construct /bpp/providers[${i}]/tags[${t}] should be defined as per the API contract (value is missing for code "unit")`
                       }
                     }
@@ -1988,13 +2001,13 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
                     break
                   default: {
                     const key = `prvdr${i}tags${t}type`
-                    errorObj[key] =
+                    businessErrors[key] =
                       `serviceability construct /bpp/providers[${i}]/tags[${t}] should be defined as per the API contract (invalid type "${type.value}")`
                   }
                 }
               } else {
                 const key = `prvdr${i}tags${t}type`
-                errorObj[key] =
+                businessErrors[key] =
                   `serviceability construct /bpp/providers[${i}]/tags[${t}] should be defined as per the API contract (type is missing)`
               }
             }
@@ -2002,7 +2015,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
           if (sc.code === 'timing') {
             if (timingSet.has(JSON.stringify(sc))) {
               const key = `prvdr${i}tags${t}`
-              errorObj[key] =
+              businessErrors[key] =
                 `timing construct /bpp/providers[${i}]/tags[${t}] should not be same with the previous timing constructs`
             }
 
@@ -2022,27 +2035,27 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
               ) {
                 isOrderPresent = true
               } else if (!fulfillmentTypes.includes(timingType)) {
-                errorObj[`provider[${i}].timing`] =
+                businessErrors[`provider[${i}].timing`] =
                   `The type '${timingType}' in timing tags should match with types in fulfillments array, along with 'Order'`
               }
             }
 
             if (!isOrderPresent) {
-              errorObj[`provider[${i}].tags.timing`] = `'Order' type must be present in timing tags`
+              businessErrors[`provider[${i}].tags.timing`] = `'Order' type must be present in timing tags`
             }
           }
         })
         if (isEmpty(serviceabilitySet)) {
           const key = `prvdr${i}tags/serviceability`
-          errorObj[key] = `serviceability construct is mandatory in /bpp/providers[${i}]/tags`
+          businessErrors[key] = `serviceability construct is mandatory in /bpp/providers[${i}]/tags`
         } else if (serviceabilitySet.size != itemCategory_id.size) {
           const key = `prvdr${i}/serviceability`
-          errorObj[key] =
+          businessErrors[key] =
             `The number of unique category_id should be equal to count of serviceability in /bpp/providers[${i}]`
         }
         if (isEmpty(timingSet)) {
           const key = `prvdr${i}tags/timing`
-          errorObj[key] = `timing construct is mandatory in /bpp/providers[${i}]/tags`
+          businessErrors[key] = `timing construct is mandatory in /bpp/providers[${i}]/tags`
         } else {
           const timingsPayloadArr = new Array(...timingSet).map((item: any) => JSON.parse(item))
           const timingsAll = _.chain(timingsPayloadArr)
@@ -2060,7 +2073,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
             .value()
 
           if (timingsAll.length > 0 && timingsOther.length > 0) {
-            errorObj[`prvdr${i}tags/timing`] =
+            businessErrors[`prvdr${i}tags/timing`] =
               `If the timings of type 'All' is provided then timings construct for 'Order'/'Delivery'/'Self-Pickup' is not required`
           }
 
@@ -2076,27 +2089,27 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
                 case 'day_to':
                   const dayValue = parseInt(item.value)
                   if (isNaN(dayValue) || dayValue < 1 || dayValue > 7 || !/^-?\d+(\.\d+)?$/.test(item.value)) {
-                    errorObj[`prvdr${i}/day_to$/${typeValue}`] = `Invalid value for '${item.code}': ${item.value}`
+                    businessErrors[`prvdr${i}/day_to$/${typeValue}`] = `Invalid value for '${item.code}': ${item.value}`
                   }
 
                   break
                 case 'time_from':
                 case 'time_to':
                   if (!/^([01]\d|2[0-3])[0-5]\d$/.test(item.value)) {
-                    errorObj[`prvdr${i}/tags/time_to/${typeValue}`] =
+                    businessErrors[`prvdr${i}/tags/time_to/${typeValue}`] =
                       `Invalid time format for '${item.code}': ${item.value}`
                   }
                   break
                 case 'location':
                   if (!prvdrLocationIds.has(item.value)) {
-                    errorObj[`prvdr${i}/tags/location/${typeValue}`] =
+                    businessErrors[`prvdr${i}/tags/location/${typeValue}`] =
                       `Invalid location value as it's unavailable in location/ids`
                   }
                   break
                 case 'type':
                   break
                 default:
-                  errorObj[`prvdr${i}/tags/tag_timings/${typeValue}`] = `Invalid list.code for 'timing': ${item.code}`
+                  businessErrors[`prvdr${i}/tags/tag_timings/${typeValue}`] = `Invalid list.code for 'timing': ${item.code}`
               }
             }
 
@@ -2112,19 +2125,19 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
               const timeTo = parseInt(timeToItem.value, 10)
 
               if (dayTo < dayFrom) {
-                errorObj[`prvdr${i}/tags/day_from/${typeValue}`] =
+                businessErrors[`prvdr${i}/tags/day_from/${typeValue}`] =
                   "'day_to' must be greater than or equal to 'day_from'"
               }
 
               if (timeTo <= timeFrom) {
-                errorObj[`prvdr${i}/tags/time_from/${typeValue}`] = "'time_to' must be greater than 'time_from'"
+                businessErrors[`prvdr${i}/tags/time_from/${typeValue}`] = "'time_to' must be greater than 'time_from'"
               }
             }
           }
 
           if (timingsAll.length > 0) {
             if (timingsAll.length > 1) {
-              errorObj[`prvdr${i}tags/timing/All`] = `The timings object for 'All' should be provided once!`
+              businessErrors[`prvdr${i}tags/timing/All`] = `The timings object for 'All' should be provided once!`
             }
             checkTimingTag(timingsAll[0])
           }
@@ -2135,17 +2148,17 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
             })
             onSearchFFTypeSet.forEach((type: any) => {
               if (!arrTimingTypes.has(type)) {
-                errorObj[`prvdr${i}/tags/timing/${type}`] = `The timings object must be present for ${type} in the tags`
+                businessErrors[`prvdr${i}/tags/timing/${type}`] = `The timings object must be present for ${type} in the tags`
               }
             })
             arrTimingTypes.forEach((type: any) => {
               if (type != 'Order' && type != 'All' && !onSearchFFTypeSet.has(type)) {
-                errorObj[`prvdr${i}/tags/timing/${type}`] =
+                businessErrors[`prvdr${i}/tags/timing/${type}`] =
                   `The timings object ${type} is not present in the onSearch fulfillments`
               }
             })
             if (!arrTimingTypes.has('Order')) {
-              errorObj[`prvdr${i}/tags/timing/order`] = `The timings object must be present for Order in the tags`
+              businessErrors[`prvdr${i}/tags/timing/order`] = `The timings object must be present for Order in the tags`
             }
           }
         }
@@ -2170,7 +2183,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
           if (data.code === 'type') {
             if (data.value === 'link') {
               if (bppPrvdrs[0].items) {
-                errorObj[`message / catalog / bpp / providers[0]`] =
+                businessErrors[`message / catalog / bpp / providers[0]`] =
                   `Items arrays should not be present in message / catalog / bpp / providers[${i}]`
               }
             }
@@ -2256,9 +2269,30 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
         errorObj.customGroupCheckError = `Error validating custom group categories: ${error.message}`
       }
     }
-  } catch (error: any) {
-    logger.error(`!!Error while checking Providers info in /${constants.ON_SEARCH}, ${error.stack}`)
+    } catch (error: any) {
+      logger.error(`!!Error while checking Providers info in /${constants.ON_SEARCH}, ${error.stack}`)
+    }
   }
 
-  return Object.keys(errorObj).length > 0 && errorObj
+  // Determine what to return based on validationType
+  if (validationType === 'schema') {
+    // Return only schema errors
+    return Object.keys(schemaErrors).length > 0 && schemaErrors
+  } else if (validationType === 'business') {
+    // Return only business errors
+    return Object.keys(businessErrors).length > 0 && businessErrors
+  } else {
+    // Default behavior (when validationType is not specified): return combined errors
+    Object.assign(errorObj, schemaErrors, businessErrors)
+    return Object.keys(errorObj).length > 0 && errorObj
+  }
+
+  } catch (error: any) {
+    logger.error(
+      `Error while checking for JSON structure and required fields for ${ApiSequence.ON_SEARCH}: ${error.stack}`,
+    )
+    return {
+      error: 'error while checking on_search api',
+    }
+  }
 }

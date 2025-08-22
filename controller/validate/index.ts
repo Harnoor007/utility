@@ -197,7 +197,7 @@ const controller = {
                 error = checkOnSearchRET11(fullData, flow, stateless ?? true, validationType)
               } else {
                 logger.info(`validateSingleAction: calling checkOnSearch125 for domain ${domainShort}`)
-                error = checkOnSearch125(fullData, flow, stateless ?? true, validationType)
+                error = checkOnSearch125(fullData, flow, stateless ?? true, )
               }
               logger.info(`validateSingleAction: on_search result:`, error)
               break
