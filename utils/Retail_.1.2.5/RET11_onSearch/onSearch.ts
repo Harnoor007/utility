@@ -35,7 +35,7 @@ import { FLOW } from '../../enum'
 // import { MenuTreeBuilder } from './fb_calculation/lower_upper_range/builder'
 // import { CatalogParser } from './fb_calculation/lower_upper_range/parser'
 
-export const checkOnsearchFullCatalogRefresh = (data: any, flow: string, stateless: boolean = false) => {
+export const checkOnsearchFullCatalogRefresh = (data: any, flow: string, stateless: boolean = false, validationType?: string) => {
   if (!data || isObjectEmpty(data)) {
     return { [ApiSequence.ON_SEARCH]: 'JSON cannot be empty' }
   }
@@ -44,6 +44,10 @@ export const checkOnsearchFullCatalogRefresh = (data: any, flow: string, statele
   if (!message || !context || !message.catalog || isObjectEmpty(message) || isObjectEmpty(message.catalog)) {
     return { missingFields: '/context, /message, /catalog or /message/catalog is missing or empty' }
   }
+
+  const schemaErrors: Record<string, any> = {};
+const businessErrors: Record<string, any> = {};
+
 
   const schemaValidation = validateSchemaRetailV2('RET11', constants.ON_SEARCH, data)
 

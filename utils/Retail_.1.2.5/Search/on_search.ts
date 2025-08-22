@@ -34,7 +34,7 @@ import { fashion } from '../../../constants/fashion'
 import { DOMAIN, FLOW, OFFERSFLOW, statutory_reqs } from '../../enum'
 import { ret1aJSON } from '../../../constants/ret1a'
 
-export const checkOnsearch = (data: any, flow?: string, stateless: boolean = false) => {
+export const checkOnsearch = (data: any, flow?: string, stateless: boolean = false, validationType?: string) => {
   console.log('in this on_search 1.2.5')
 
   if (!data || isObjectEmpty(data)) {

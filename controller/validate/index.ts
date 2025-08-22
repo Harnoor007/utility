@@ -161,7 +161,7 @@ const controller = {
   validateSingleAction: async (req: Request, res: Response): Promise<Response | void> => {
     try {
       if (!req.body) return res.status(400).send({ success: false, error: 'provide transaction logs to verify' })
-      const { context, message, flow } = req.body
+      const { context, message, flow, stateless, validationType } = req.body
 
       if (!context || !message) return res.status(400).send({ success: false, error: 'context, message are required' })
       if (!context.domain || !context.core_version || !context.action) {
@@ -188,16 +188,16 @@ const controller = {
           switch (action) {
             case 'search':
               logger.info(`validateSingleAction: calling checkSearch125 for domain ${domainShort}`)
-              error = checkSearch125(fullData, msgIdSet, flow, true)
+              error = checkSearch125(fullData, msgIdSet, flow, stateless ?? true, validationType)
               logger.info(`validateSingleAction: checkSearch125 result:`, error)
               break
             case 'on_search':
               if (domainShort === 'RET11') {
                 logger.info(`validateSingleAction: calling checkOnSearchRET11 for domain ${domainShort}`)
-                error = checkOnSearchRET11(fullData, flow, true)
+                error = checkOnSearchRET11(fullData, flow, stateless ?? true, validationType)
               } else {
                 logger.info(`validateSingleAction: calling checkOnSearch125 for domain ${domainShort}`)
-                error = checkOnSearch125(fullData, flow, true)
+                error = checkOnSearch125(fullData, flow, stateless ?? true, validationType)
               }
               logger.info(`validateSingleAction: on_search result:`, error)
               break
