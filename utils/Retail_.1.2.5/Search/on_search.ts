@@ -34,14 +34,14 @@ import { fashion } from '../../../constants/fashion'
 import { DOMAIN, FLOW, OFFERSFLOW, statutory_reqs } from '../../enum'
 import { ret1aJSON } from '../../../constants/ret1a'
 
-export const checkOnsearch = (data: any, flow?: string, stateless: boolean = false, validationType?: string) => {
+export const checkOnsearch = (data: any, flow?: string, stateless: boolean = false, schemaValidation?: boolean) => {
   console.log('in this on_search 1.2.5')
   let errorObj: any = {}
   const schemaErrors: Record<string, any> = {}
   const businessErrors: Record<string, any> = {}
 
   try {
-    logger.info(`Checking JSON structure and required fields for ${ApiSequence.ON_SEARCH} API with validationType: ${validationType || 'all'}`)
+    logger.info(`Checking JSON structure and required fields for ${ApiSequence.ON_SEARCH} API with validationType: ${schemaValidation || 'all'}`)
 
     if (!data || isObjectEmpty(data)) {
       errorObj[ApiSequence.ON_SEARCH] = 'JSON cannot be empty'
@@ -55,7 +55,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
     }
 
     // Schema validation - run if validationType is not specified, is 'schema', or is not 'business'
-    if (!validationType || validationType === 'schema') {
+    if (schemaValidation === undefined || schemaValidation === true) {
       const schemaDomain = context.domain.split(':')[1]
       logger.info(`checkOnsearch: calling schema validation with domain=${schemaDomain}, api=${constants.ON_SEARCH}`)
       const schemaValidation = validateSchemaRetailV2(schemaDomain, constants.ON_SEARCH, data)
@@ -71,7 +71,7 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
     }
 
     // Business logic validation - run if validationType is not specified, is 'business', or is not 'schema'
-    if (!validationType || validationType === 'business') {
+    if (schemaValidation === undefined || schemaValidation === false) {
       let collect_payment_tags: any = {}
 
       setValue(`${ApiSequence.ON_SEARCH}_context`, context)
@@ -2275,10 +2275,10 @@ export const checkOnsearch = (data: any, flow?: string, stateless: boolean = fal
   }
 
   // Determine what to return based on validationType
-  if (validationType === 'schema') {
+  if (schemaValidation === true) {
     // Return only schema errors
     return Object.keys(schemaErrors).length > 0 && schemaErrors
-  } else if (validationType === 'business') {
+  } else if (schemaValidation === false) {
     // Return only business errors
     return Object.keys(businessErrors).length > 0 && businessErrors
   } else {

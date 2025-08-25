@@ -35,13 +35,13 @@ import { FLOW } from '../../enum'
 // import { MenuTreeBuilder } from './fb_calculation/lower_upper_range/builder'
 // import { CatalogParser } from './fb_calculation/lower_upper_range/parser'
 
-export const checkOnsearchFullCatalogRefresh = (data: any, flow: string, stateless: boolean = false, validationType?: string) => {
+export const checkOnsearchFullCatalogRefresh = (data: any, flow: string, stateless: boolean = false, schemaValidation?: boolean) => {
   let errorObj: any = {}
   const schemaErrors: Record<string, any> = {}
   const businessErrors: Record<string, any> = {}
 
   try {
-    logger.info(`Checking JSON structure and required fields for ${ApiSequence.ON_SEARCH} API with validationType: ${validationType || 'all'}`)
+    logger.info(`Checking JSON structure and required fields for ${ApiSequence.ON_SEARCH} API with validationType: ${schemaValidation || 'all'}`)
 
     if (!data || isObjectEmpty(data)) {
       errorObj[ApiSequence.ON_SEARCH] = 'JSON cannot be empty'
@@ -55,7 +55,7 @@ export const checkOnsearchFullCatalogRefresh = (data: any, flow: string, statele
     }
 
     // Schema validation - run if validationType is not specified, is 'schema', or is not 'business'
-    if (!validationType || validationType === 'schema') {
+    if (schemaValidation === undefined || schemaValidation === true) {
       const schemaValidation = validateSchemaRetailV2('RET11', constants.ON_SEARCH, data)
 
       if (schemaValidation !== 'error') {
@@ -64,7 +64,7 @@ export const checkOnsearchFullCatalogRefresh = (data: any, flow: string, statele
     }
 
     // Business logic validation - run if validationType is not specified, is 'business', or is not 'schema'
-    if (!validationType || validationType === 'business') {
+    if (schemaValidation === undefined || schemaValidation === false) {
       const contextRes: any = checkContext(context, constants.ON_SEARCH)
       setValue(`${ApiSequence.ON_SEARCH}_context`, context)
       setValue(`${ApiSequence.ON_SEARCH}_message`, message)
@@ -2492,10 +2492,10 @@ export const checkOnsearchFullCatalogRefresh = (data: any, flow: string, statele
   }
 
   // Determine what to return based on validationType
-  if (validationType === 'schema') {
+  if (schemaValidation === true) {
     // Return only schema errors
     return Object.keys(schemaErrors).length > 0 && schemaErrors
-  } else if (validationType === 'business') {
+  } else if (schemaValidation === false) {
     // Return only business errors
     return Object.keys(businessErrors).length > 0 && businessErrors
   } else {

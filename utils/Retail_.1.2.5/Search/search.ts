@@ -13,13 +13,13 @@ import {
 import _ from 'lodash'
 import { FLOW } from '../../enum'
 
-export const checkSearch = (data: any, msgIdSet: any, flow: any, stateless: boolean = false, validationType?: string) => {
+export const checkSearch = (data: any, msgIdSet: any, flow: any, stateless: boolean = false, schemaValidation?: boolean) => {
   const errorObj: any = {}
   const schemaErrors: any = {}
   const businessErrors: any = {}
   
   try {
-    logger.info(`Checking JSON structure and required fields for ${ApiSequence.SEARCH} API with validationType: ${validationType || 'all'}`)
+    logger.info(`Checking JSON structure and required fields for ${ApiSequence.SEARCH} API with validationType: ${schemaValidation || 'all'}`)
 
     if (!data || isObjectEmpty(data)) {
       errorObj[ApiSequence.SEARCH] = 'JSON cannot be empty'
@@ -38,7 +38,7 @@ export const checkSearch = (data: any, msgIdSet: any, flow: any, stateless: bool
     }
 
     // Schema validation - run if validationType is not specified, is 'schema', or is not 'business'
-    if (!validationType || validationType === 'schema') {
+    if (schemaValidation === undefined || schemaValidation === true) {
       const schemaDomain = data.context.domain.split(':')[1]
       logger.info(`checkSearch: calling schema validation with domain=${schemaDomain}, api=${constants.SEARCH}`)
       const schemaValidation = validateSchemaRetailV2(schemaDomain, constants.SEARCH, data)
@@ -49,7 +49,7 @@ export const checkSearch = (data: any, msgIdSet: any, flow: any, stateless: bool
     }
 
     // Business logic validation - run if validationType is not specified, is 'business', or is not 'schema'
-    if (!validationType || validationType === 'business') {
+    if (schemaValidation === undefined || schemaValidation === false) {
       try {
         logger.info(`Adding Message Id /${constants.SEARCH}`)
         msgIdSet.add(data.context.message_id)
@@ -180,10 +180,10 @@ export const checkSearch = (data: any, msgIdSet: any, flow: any, stateless: bool
     }
 
     // Determine what to return based on validationType
-    if (validationType === 'schema') {
+    if (schemaValidation === true) {
       // Return only schema errors
       return Object.keys(schemaErrors).length > 0 && schemaErrors
-    } else if (validationType === 'business') {
+    } else if (schemaValidation === false) {
       // Return only business errors
       return Object.keys(businessErrors).length > 0 && businessErrors
     } else {
