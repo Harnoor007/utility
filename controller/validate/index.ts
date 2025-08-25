@@ -14,7 +14,7 @@ import { checkOnsearchFullCatalogRefresh as checkOnSearchRET11 } from '../../uti
 // Retail 1.2.0
 import { checkSearch as checkSearch120 } from '../../utils/Retail/Search/search'
 import { checkOnsearch as checkOnSearch120 } from '../../utils/Retail/Search/on_search'
-import validateFunctions from '../../shared/schemaValidatorV2'
+// import validateFunctions from '../../shared/schemaValidatorV2'
 
 const controller = {
   validate: async (req: Request, res: Response): Promise<Response | void> => {
@@ -162,45 +162,55 @@ const controller = {
   validateSingleAction: async (req: Request, res: Response): Promise<Response | void> => {
     try {
       if (!req.body) return res.status(400).send({ success: false, error: 'provide transaction logs to verify' })
-      const { context, message, flow } = req.body
-
+ 
+      const { payload, flow, stateless: topLevelStateless, schemaValidation } = req.body
+ 
+      const context = payload?.context
+      const message = payload?.message
+ 
       if (!context || !message) return res.status(400).send({ success: false, error: 'context, message are required' })
       if (!context.domain || !context.core_version || !context.action) {
         return res
           .status(400)
           .send({ success: false, error: 'context.domain, context.core_version, context.action is required' })
       }
-
+ 
       const { domain, core_version, action } = context
       const domainShort = domain.split(':')[1]
       logger.info(`validateSingleAction: domain=${domain}, domainShort=${domainShort}, action=${action}, core_version=${core_version}`)
-
+ 
       await dropDB()
       setValue('flow', flow || '1')
       setValue('domain', domainShort)
       const msgIdSet = new Set()
       let error: any = {}
-
+ 
       // Reconstruct the full data object like the regular validate endpoint expects
       const fullData = { context, message }
-      
-       switch (core_version) {
+
+      // Helper: pick schema/business/combined errors from validator buckets
+      const pickErrors = (result: any, flag: boolean | undefined) => {
+        if (!result || typeof result !== 'object') return {}
+        if (flag === true) return result.schemaErrors || {}
+        if (flag === false) return result.businessErrors || {}
+        return { ...(result.schemaErrors || {}), ...(result.businessErrors || {}) }
+      }
+
+      switch (core_version) {
         case '1.2.5':
           switch (action) {
             case 'search':
               logger.info(`validateSingleAction: calling checkSearch125 for domain ${domainShort}`)
-              error = checkSearch125(fullData, msgIdSet, flow, true)
+              error = checkSearch125(fullData, msgIdSet, flow, topLevelStateless ?? true, undefined)
               logger.info(`validateSingleAction: checkSearch125 result:`, error)
               break
             case 'on_search':
               if (domainShort === 'RET11') {
                 logger.info(`validateSingleAction: calling checkOnSearchRET11 for domain ${domainShort}`)
-                error = checkOnSearchRET11(fullData, flow, true)
-                error['ajv_schema_errors'] = validateFunctions.validate_schema_on_search_RET11_for_json(fullData)
+                error = checkOnSearchRET11(fullData, flow, topLevelStateless ?? true, undefined)
               } else {
                 logger.info(`validateSingleAction: calling checkOnSearch125 for domain ${domainShort}`)
-                error = checkOnSearch125(fullData, flow, true)
-                error['ajv_schema_errors'] = validateFunctions.validate_schema_on_search_RET10_for_json(fullData)
+                error = checkOnSearch125(fullData, flow, topLevelStateless ?? true, undefined)
               }
               logger.info(`validateSingleAction: on_search result:`, error)
               break
@@ -223,8 +233,11 @@ const controller = {
         default:
           return res.status(400).send({ success: false, error: 'Invalid core_version' })
       }
+  
+      // Select errors via helper for clarity
+      const chosenErrors = pickErrors(error, schemaValidation)
 
-      if (error && Object.keys(error).length) return res.status(400).send({ success: false, error })
+      if (chosenErrors && Object.keys(chosenErrors).length) return res.status(400).send({ success: false, error: chosenErrors })
       return res.status(200).send({ success: true, error: false })
     } catch (error) {
       logger.error(error)

@@ -28,8 +28,8 @@ export const dropDB = async (): Promise<void> => {
   try {
     await myDB.drop()
     myDB.close()
-  } catch (err: any) {
-    logger.error('!!Error while removing LMDB', err.message ? err.message : err)
+  } catch (err) {
+    logger.error('!!Error while removing LMDB', err instanceof Error ? err.message : err)
     myDB.close()
     // Re-throw the error to ensure proper error handling
     throw err
