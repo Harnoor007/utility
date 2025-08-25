@@ -11,6 +11,9 @@ import { dropDB, setValue } from '../../shared/dao'
 import { checkSearch as checkSearch125 } from '../../utils/Retail_.1.2.5/Search/search'
 import { checkOnsearch as checkOnSearch125 } from '../../utils/Retail_.1.2.5/Search/on_search'
 import { checkOnsearchFullCatalogRefresh as checkOnSearchRET11 } from '../../utils/Retail_.1.2.5/RET11_onSearch/onSearch'
+import { checkSelect as checkSelect125 } from '../../utils/Retail_.1.2.5/Select/select'
+import { checkOnSelect as checkOnSelect125 } from '../../utils/Retail_.1.2.5/Select/onSelect'
+import { ApiSequence } from '../../constants'
 // Retail 1.2.0
 import { checkSearch as checkSearch120 } from '../../utils/Retail/Search/search'
 import { checkOnsearch as checkOnSearch120 } from '../../utils/Retail/Search/on_search'
@@ -213,6 +216,16 @@ const controller = {
                 error = checkOnSearch125(fullData, flow, topLevelStateless ?? true, undefined)
               }
               logger.info(`validateSingleAction: on_search result:`, error)
+              break
+            case 'select':
+              logger.info(`validateSingleAction: calling checkSelect125 for domain ${domainShort}`)
+              error = checkSelect125(fullData, msgIdSet, ApiSequence.SELECT, schemaValidation, topLevelStateless ?? true)
+              logger.info(`validateSingleAction: checkSelect125 result:`, error)
+              break
+            case 'on_select':
+              logger.info(`validateSingleAction: calling checkOnSelect125 for domain ${domainShort}`)
+              error = checkOnSelect125(fullData, flow, schemaValidation, topLevelStateless ?? true)
+              logger.info(`validateSingleAction: checkOnSelect125 result:`, error)
               break
             default:
               return res.status(400).send({ success: false, error: `Unsupported action for retail 1.2.5: ${action}` })
