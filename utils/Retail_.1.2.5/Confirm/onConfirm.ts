@@ -25,8 +25,10 @@ import {
 import { FLOW, OFFERSFLOW } from '../../enum'
 import { getValue, setValue } from '../../../shared/dao'
 import { extractRoutingType, isValidRoutingType } from '../common/routingValidator'
-export const checkOnConfirm = (data: any, flow: string) => {
+
+export const checkOnConfirm = (data: any, flow: string, schemaValidation?: boolean, stateless?: boolean) => {
   const onCnfrmObj: any = {}
+  const schemaErrors: any = {}
   try {
     if (!data || isObjectEmpty(data)) {
       return { [ApiSequence.ON_CONFIRM]: 'JSON cannot be empty' }
@@ -39,7 +41,7 @@ export const checkOnConfirm = (data: any, flow: string) => {
 
     try {
       logger.info(`Comparing Message Ids of /${constants.CONFIRM} and /${constants.ON_CONFIRM}`)
-      if (!_.isEqual(getValue(`${ApiSequence.CONFIRM}_msgId`), context.message_id)) {
+      if (!stateless && !_.isEqual(getValue(`${ApiSequence.CONFIRM}_msgId`), context.message_id)) {
         onCnfrmObj[`${ApiSequence.ON_CONFIRM}_msgId`] =
           `Message Ids for /${constants.CONFIRM} and /${constants.ON_CONFIRM} api should be same`
       }
@@ -47,11 +49,13 @@ export const checkOnConfirm = (data: any, flow: string) => {
       logger.error(`!!Error while checking message id for /${constants.ON_SEARCHINC}, ${error.stack}`)
     }
 
-    const searchContext: any = getValue(`${ApiSequence.SEARCH}_context`)
-    const parentItemIdSet: any = getValue(`parentItemIdSet`)
-    const select_customIdArray: any = getValue(`select_customIdArray`)
+    const searchContext: any = stateless ? undefined : getValue(`${ApiSequence.SEARCH}_context`)
+    const parentItemIdSet: any = stateless ? undefined : getValue(`parentItemIdSet`)
+    const select_customIdArray: any = stateless ? undefined : getValue(`select_customIdArray`)
 
-    const schemaValidation = validateSchemaRetailV2(context.domain.split(':')[1], constants.ON_CONFIRM, data)
+    const schemaValidationResult = schemaValidation !== false
+      ? validateSchemaRetailV2(context.domain.split(':')[1], constants.ON_CONFIRM, data)
+      : 'skip'
 
     const contextRes: any = checkContext(context, constants.ON_CONFIRM)
 
@@ -61,16 +65,31 @@ export const checkOnConfirm = (data: any, flow: string) => {
     if (checkBap) Object.assign(onCnfrmObj, { bap_id: 'context/bap_id should not be a url' })
     if (checkBpp) Object.assign(onCnfrmObj, { bpp_id: 'context/bpp_id should not be a url' })
 
-    if (schemaValidation !== 'error') {
-      Object.assign(onCnfrmObj, schemaValidation)
+    if (schemaValidationResult !== 'error' && schemaValidationResult !== 'skip') {
+      Object.assign(schemaErrors, schemaValidationResult)
     }
 
     if (!contextRes?.valid) {
       Object.assign(onCnfrmObj, contextRes.ERRORS)
     }
-    if (!_.isEqual(data.context.domain.split(':')[1], getValue(`domain`))) {
+
+    if (!stateless && !_.isEqual(data.context.domain.split(':')[1], getValue(`domain`))) {
       onCnfrmObj[`Domain[${data.context.action}]`] = `Domain should be same in each action`
     }
+
+    // In stateless mode, stop after schema/context/basic validations
+    if (stateless) {
+      // Merge schema errors into business errors
+      if (Object.keys(schemaErrors).length > 0) {
+        Object.assign(onCnfrmObj, schemaErrors)
+      }
+
+      if (Object.keys(onCnfrmObj).length === 0) {
+        return { success: true, error: false }
+      }
+      return { success: false, error: onCnfrmObj }
+    }
+
 
     setValue(`${ApiSequence.ON_CONFIRM}`, data)
 
@@ -119,7 +138,7 @@ export const checkOnConfirm = (data: any, flow: string) => {
     try {
       logger.info(`Checking Cancellation terms for /${constants.ON_CONFIRM}`)
       const OnInitCancellationTerms = getValue('OnInitCancellationTerms')
-      
+
       // Only compare if cancellation_terms were provided in on_init
       if (OnInitCancellationTerms !== undefined) {
         const Errors = compareObjects(OnInitCancellationTerms, message.order.cancellation_terms)
@@ -179,7 +198,6 @@ export const checkOnConfirm = (data: any, flow: string) => {
         if (cnfrmOrdrCrtd && (!on_confirm.created_at || on_confirm.created_at != cnfrmOrdrCrtd)) {
           onCnfrmObj.crtdtmstmp = `order.created_at timestamp mismatches in /${constants.CONFIRM} and /${constants.ON_CONFIRM}`
         }
-
         if (on_confirm.updated_at) {
           setValue('PreviousUpdatedTimestamp', on_confirm.updated_at)
         }
@@ -267,7 +285,7 @@ export const checkOnConfirm = (data: any, flow: string) => {
       const fulfillmentTypes = ['Delivery', 'Buyer-Delivery']
 
       const fulfillments = on_confirm.fulfillments || []
-      const foundType:any = fulfillmentTypes.find(type => fulfillments.some((f: any) => f.type === type))
+      const foundType: any = fulfillmentTypes.find(type => fulfillments.some((f: any) => f.type === type))
 
 
       const matchingFulfillments = fulfillments.filter((f: any) => f.type === foundType)
@@ -293,43 +311,6 @@ export const checkOnConfirm = (data: any, flow: string) => {
       logger.error(`Error while storing fulfillment: ${error.stack}`)
     }
 
-
-
-    // if (on_confirm.state === 'Accepted') {
-    //   try {
-    //     // For Delivery Object
-    //     const fulfillments = on_confirm.fulfillments
-    //     if (fulfillments) {
-    //       const deliveryFulfillment = fulfillments.find((f: any) => f.type === 'Delivery')
-    //       if (!deliveryFulfillment.hasOwnProperty('provider_id')) {
-    //         const key = `missingFulfillments`
-    //         onCnfrmObj[key] = `provider_id must be present in ${ApiSequence.ON_CONFIRM} as order is accepted`
-    //       }
-
-    //       const id = getProviderId(deliveryFulfillment)
-    //       setValue('fulfillmentProviderId', id)
-    //     }
-    //     if (!fulfillments.length) {
-    //       const key = `missingFulfillments`
-    //       onCnfrmObj[key] = `missingFulfillments is mandatory for ${ApiSequence.ON_CONFIRM}`
-    //     } else {
-    //       const deliveryObjArr = _.filter(fulfillments, { type: 'Delivery' })
-    //       if (!deliveryObjArr.length) {
-    //         onCnfrmObj[`message/order.fulfillments/`] =
-    //           `Delivery fullfillment must be present in ${ApiSequence.ON_CONFIRM} if the Order.state is 'Accepted'`
-    //       } else {
-    //         const deliverObj = deliveryObjArr[0]
-    //         delete deliverObj?.state
-    //         delete deliverObj?.tags
-    //         delete deliverObj?.start?.instructions
-    //         delete deliverObj?.end?.instructions
-    //         fulfillmentsItemsSet.add(deliverObj)
-    //       }
-    //     }
-    //   } catch (error: any) {
-    //     logger.error(`Error while checking Fulfillments Delivery Obj in /${ApiSequence.ON_CONFIRM}, ${error.stack}`)
-    //   }
-    // }
     //Vehicle registeration for (Self-Pickup) Kerbside
     const fulfillments = on_confirm.fulfillments
     if (Array.isArray(fulfillments)) {
@@ -395,7 +376,6 @@ export const checkOnConfirm = (data: any, flow: string) => {
               tax_number = item.value
             }
           }
-
           if (item.code == 'provider_tax_number') {
             if (item.value.length != 10) {
               const key = `message.order.tags[0].list`
@@ -533,7 +513,7 @@ export const checkOnConfirm = (data: any, flow: string) => {
         }
 
         else {
-          if(!on_confirm.fulfillments[i].start || !on_confirm.fulfillments[i].end){
+          if (!on_confirm.fulfillments[i].start || !on_confirm.fulfillments[i].end) {
             onCnfrmObj.ffstartend = `fulfillments[${i}] start and end locations are mandatory`
           }
         }
@@ -613,7 +593,7 @@ export const checkOnConfirm = (data: any, flow: string) => {
               const finance_txn = offer.item.tags.find((tag: any) => tag.code === 'finance_txn')
               if (finance_tags) {
                 const on_init_finance_tags = getValue(`finance_terms${constants.ON_INIT}`)
-                const financeTagsError = compareFinanceTermsTags(on_init_finance_tags,finance_tags)
+                const financeTagsError = compareFinanceTermsTags(on_init_finance_tags, finance_tags)
                 if (financeTagsError) {
                   let i = 0
                   const len = financeTagsError.length
@@ -624,7 +604,7 @@ export const checkOnConfirm = (data: any, flow: string) => {
                   }
                 }
               }
-              if(finance_txn){
+              if (finance_txn) {
                 const financeTxnError = validateFinanceTxnTag(finance_txn)
                 if (financeTxnError) {
                   let i = 0
@@ -648,29 +628,28 @@ export const checkOnConfirm = (data: any, flow: string) => {
       logger.info(`Comparing Quote object for /${constants.ON_SELECT} and /${constants.ON_CONFIRM}`)
 
       const on_select_quote: any = getValue('quoteObj')
-       if (flow !== FLOW.FLOW0099 && flow != OFFERSFLOW.FLOW0098) {
-      const quoteErrors = compareQuoteObjects(
-        on_select_quote,
-        on_confirm.quote,
-        constants.ON_CONFIRM,
-        constants.ON_SELECT,
-      )
-
-      const hasItemWithQuantity = _.some(on_confirm.quote.breakup, (item) => _.has(item, 'item.quantity'))
-      if (hasItemWithQuantity) {
-        const key = `quantErr`
-        onCnfrmObj[key] =
-          `Extra attribute Quantity provided in quote object i.e not supposed to be provided after on_select so invalid quote object`
-      } else if (quoteErrors) {
-        let i = 0
-        const len = quoteErrors.length
-        while (i < len) {
-          const key = `quoteErr${i}`
-          onCnfrmObj[key] = `${quoteErrors[i]}`
-          i++
+      if (flow !== FLOW.FLOW0099 && flow != OFFERSFLOW.FLOW0098) {
+        const quoteErrors = compareQuoteObjects(
+          on_select_quote,
+          on_confirm.quote,
+          constants.ON_CONFIRM,
+          constants.ON_SELECT,
+        )
+        const hasItemWithQuantity = _.some(on_confirm.quote.breakup, (item) => _.has(item, 'item.quantity'))
+        if (hasItemWithQuantity) {
+          const key = `quantErr`
+          onCnfrmObj[key] =
+            `Extra attribute Quantity provided in quote object i.e not supposed to be provided after on_select so invalid quote object`
+        } else if (quoteErrors) {
+          let i = 0
+          const len = quoteErrors.length
+          while (i < len) {
+            const key = `quoteErr${i}`
+            onCnfrmObj[key] = `${quoteErrors[i]}`
+            i++
+          }
         }
       }
-    }
     } catch (error: any) {
       logger.error(`!!Error while comparing quote in /${constants.ON_SELECT} and /${constants.ON_CONFIRM}`)
     }
@@ -679,7 +658,7 @@ export const checkOnConfirm = (data: any, flow: string) => {
       logger.info(`Comparing order price value in /${constants.ON_INIT} and /${constants.CONFIRM}`)
       const oninitQuotePrice: any = getValue('initQuotePrice')
       const onConfirmQuotePrice = parseFloat(on_confirm.quote.price.value)
-      setValue(`${constants.ON_CONFIRM}/quote`,on_confirm.quote)
+      setValue(`${constants.ON_CONFIRM}/quote`, on_confirm.quote)
 
       logger.info(`Comparing quote prices of /${constants.ON_INIT} and /${constants.CONFIRM}`)
       if (oninitQuotePrice != onConfirmQuotePrice) {
@@ -756,7 +735,6 @@ export const checkOnConfirm = (data: any, flow: string) => {
       const confirm_tags: any[] | any = getValue('confirm_tags')
       if (on_confirm.tags) {
         const bap_terms = areGSTNumbersMatching(confirm_tags, on_confirm.tags, 'bap_terms')
-
         if (bap_terms === false) {
           onCnfrmObj.tags_bap_terms = `Tags should have same and valid gst_number as passed in /${constants.CONFIRM}`
         }
@@ -851,7 +829,6 @@ export const checkOnConfirm = (data: any, flow: string) => {
       if (item?.end?.time?.range && ele?.end?.time?.range) {
         const itemRange = item.end.time.range
         const eleRange = ele.end.time.range
-
         if (itemRange.start !== eleRange.start && itemRange.end !== eleRange.end) {
           const key = `slotsMismatch`
           onCnfrmObj[key] = `slots in fulfillments must be same as in /${constants.ON_INIT}`
@@ -884,24 +861,24 @@ export const checkOnConfirm = (data: any, flow: string) => {
       logger.error(`Error while Checking creds in ${constants.ON_CONFIRM}, ${err.stack} `)
     }
 
-   if (flow === FLOW.FLOW01F) {
-  const bppTerms = getValue('bppTerms');
-  const list = message.order.tags?.find((item: any) => item?.code === 'bpp_terms')?.list;
-  if (!deepCompare(list, bppTerms)) {
-    onCnfrmObj['missingbppTerms'] = `bppTerms must be same as provided in /${constants.ON_SEARCH} call`;
-  }
-}
+    if (flow === FLOW.FLOW01F) {
+      const bppTerms = getValue('bppTerms');
+      const list = message.order.tags?.find((item: any) => item?.code === 'bpp_terms')?.list;
+      if (!deepCompare(list, bppTerms)) {
+        onCnfrmObj['missingbppTerms'] = `bppTerms must be same as provided in /${constants.ON_SEARCH} call`;
+      }
+    }
 
     // Validate routing type for retail 1.2.5
     try {
       logger.info(`Checking routing type in /${constants.ON_CONFIRM}`)
       const orderState = getValue('orderState')
       const domain = getValue('domain')
-      
+
       if (orderState === 'Accepted') {
         // Extract routing type from delivery fulfillment
         const routingType = extractRoutingType(on_confirm.fulfillments)
-        
+
         if (!routingType) {
           onCnfrmObj.routingType = `Routing type tag is mandatory in delivery fulfillment when order.state is 'Accepted' in /${constants.ON_CONFIRM}`
         } else if (!isValidRoutingType(routingType)) {
@@ -916,8 +893,17 @@ export const checkOnConfirm = (data: any, flow: string) => {
       logger.error(`Error while checking routing type in /${constants.ON_CONFIRM}: ${error.stack}`)
     }
 
-    return onCnfrmObj
+    if (Object.keys(schemaErrors).length > 0) {
+      Object.assign(onCnfrmObj, schemaErrors)
+    }
+
+    if (Object.keys(onCnfrmObj).length === 0) {
+      return { success: true, error: false }
+    }
+    return { success: false, error: onCnfrmObj }
+
   } catch (err: any) {
     logger.error(`!!Some error occurred while checking /${constants.ON_CONFIRM} API`, JSON.stringify(err.stack))
+    return onCnfrmObj
   }
 }

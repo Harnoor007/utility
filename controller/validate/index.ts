@@ -6,18 +6,19 @@ import helper from './helper'
 
 import { verify, hash } from '../../shared/crypto'
 
-import { dropDB, setValue } from '../../shared/dao'
+import { dropDB } from '../../shared/dao'
 // Retail 1.2.5
 import { checkSearch as checkSearch125 } from '../../utils/Retail_.1.2.5/Search/search'
 import { checkOnsearch as checkOnSearch125 } from '../../utils/Retail_.1.2.5/Search/on_search'
 import { checkOnsearchFullCatalogRefresh as checkOnSearchRET11 } from '../../utils/Retail_.1.2.5/RET11_onSearch/onSearch'
 import { checkSelect as checkSelect125 } from '../../utils/Retail_.1.2.5/Select/select'
 import { checkOnSelect as checkOnSelect125 } from '../../utils/Retail_.1.2.5/Select/onSelect'
+import { checkConfirm as checkConfirm125 } from '../../utils/Retail_.1.2.5/Confirm/confirm'
+import { checkOnConfirm as checkOnConfirm125 } from '../../utils/Retail_.1.2.5/Confirm/onConfirm'
 import { ApiSequence } from '../../constants'
 // Retail 1.2.0
 import { checkSearch as checkSearch120 } from '../../utils/Retail/Search/search'
 import { checkOnsearch as checkOnSearch120 } from '../../utils/Retail/Search/on_search'
-// import validateFunctions from '../../shared/schemaValidatorV2'
 
 const controller = {
   validate: async (req: Request, res: Response): Promise<Response | void> => {
@@ -165,29 +166,29 @@ const controller = {
   validateSingleAction: async (req: Request, res: Response): Promise<Response | void> => {
     try {
       if (!req.body) return res.status(400).send({ success: false, error: 'provide transaction logs to verify' })
- 
+
       const { payload, flow, stateless: topLevelStateless, schemaValidation } = req.body
- 
+
       const context = payload?.context
       const message = payload?.message
- 
+
       if (!context || !message) return res.status(400).send({ success: false, error: 'context, message are required' })
       if (!context.domain || !context.core_version || !context.action) {
         return res
           .status(400)
           .send({ success: false, error: 'context.domain, context.core_version, context.action is required' })
       }
- 
+
       const { domain, core_version, action } = context
       const domainShort = domain.split(':')[1]
       logger.info(`validateSingleAction: domain=${domain}, domainShort=${domainShort}, action=${action}, core_version=${core_version}`)
- 
+
       await dropDB()
-      setValue('flow', flow || '1')
-      setValue('domain', domainShort)
+      // setValue('flow', flow || '1')
+      // setValue('domain', domainShort)
       const msgIdSet = new Set()
       let error: any = {}
- 
+
       // Reconstruct the full data object like the regular validate endpoint expects
       const fullData = { context, message }
 
@@ -227,6 +228,16 @@ const controller = {
               error = checkOnSelect125(fullData, flow, schemaValidation, topLevelStateless ?? true)
               logger.info(`validateSingleAction: checkOnSelect125 result:`, error)
               break
+            case 'confirm':
+              logger.info(`validateSingleAction: calling checkConfirm125 for domain ${domainShort}`)
+              error = checkConfirm125(fullData, msgIdSet, flow, schemaValidation, topLevelStateless ?? true)
+              logger.info(`validateSingleAction: checkConfirm result:`, error)
+              break
+            case 'on_confirm':
+              logger.info(`validateSingleAction: calling checkOnConfirm for domain ${domainShort}`)
+              error = checkOnConfirm125(fullData, flow, schemaValidation, topLevelStateless ?? true)
+              logger.info(`validateSingleAction: checkOnConfirm result:`, error)
+              break
             default:
               return res.status(400).send({ success: false, error: `Unsupported action for retail 1.2.5: ${action}` })
           }
@@ -246,7 +257,7 @@ const controller = {
         default:
           return res.status(400).send({ success: false, error: 'Invalid core_version' })
       }
-  
+
       // Select errors via helper for clarity
       const chosenErrors = pickErrors(error, schemaValidation)
 
