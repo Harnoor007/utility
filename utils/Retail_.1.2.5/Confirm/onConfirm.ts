@@ -83,8 +83,16 @@ export const checkOnConfirm = (data: any, flow: string, schemaValidation?: boole
 
   // If stateless is true, stop after basic validations and return
   if (stateless) {
-    return { schemaErrors, businessErrors }
-  }
+      const hasSchema = Object.keys(schemaErrors).length > 0
+      const hasBusiness = Object.keys(businessErrors).length > 0
+      if (!hasSchema && !hasBusiness) return false
+      if (schemaValidation !== undefined) {
+        return { schemaErrors, businessErrors }
+      }
+      // Merge schema and business errors into one object
+      const combinedErrors = { ...schemaErrors, ...businessErrors }
+      return Object.keys(combinedErrors).length > 0 ? combinedErrors : false
+    }
 
   // Continue with business logic (only if not stateless)
   const searchContext: any = getValue(`${ApiSequence.SEARCH}_context`)
@@ -943,3 +951,5 @@ export const checkOnConfirm = (data: any, flow: string, schemaValidation?: boole
     return { success: true, error: false }
   }
 }
+  
+  
