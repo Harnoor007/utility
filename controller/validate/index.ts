@@ -13,6 +13,10 @@ import { checkOnsearch as checkOnSearch125 } from '../../utils/Retail_.1.2.5/Sea
 import { checkOnsearchFullCatalogRefresh as checkOnSearchRET11 } from '../../utils/Retail_.1.2.5/RET11_onSearch/onSearch'
 import { checkSelect as checkSelect125 } from '../../utils/Retail_.1.2.5/Select/select'
 import { checkOnSelect as checkOnSelect125 } from '../../utils/Retail_.1.2.5/Select/onSelect'
+import { checkInit as checkInit125 } from '../../utils/Retail_.1.2.5/Init/init'
+import { checkOnInit as checkOnInit125 } from '../../utils/Retail_.1.2.5/Init/onInit'
+import { checkCancel as checkCancel125 } from '../../utils/Retail_.1.2.5/Cancel/cancel'
+import { checkOnCancel as checkOnCancel125 } from '../../utils/Retail_.1.2.5/Cancel/onCancel'
 import { ApiSequence } from '../../constants'
 // Retail 1.2.0
 import { checkSearch as checkSearch120 } from '../../utils/Retail/Search/search'
@@ -165,29 +169,23 @@ const controller = {
   validateSingleAction: async (req: Request, res: Response): Promise<Response | void> => {
     try {
       if (!req.body) return res.status(400).send({ success: false, error: 'provide transaction logs to verify' })
- 
       const { payload, flow, stateless: topLevelStateless, schemaValidation } = req.body
- 
       const context = payload?.context
       const message = payload?.message
- 
       if (!context || !message) return res.status(400).send({ success: false, error: 'context, message are required' })
       if (!context.domain || !context.core_version || !context.action) {
         return res
           .status(400)
           .send({ success: false, error: 'context.domain, context.core_version, context.action is required' })
       }
- 
       const { domain, core_version, action } = context
       const domainShort = domain.split(':')[1]
       logger.info(`validateSingleAction: domain=${domain}, domainShort=${domainShort}, action=${action}, core_version=${core_version}`)
- 
       await dropDB()
       setValue('flow', flow || '1')
       setValue('domain', domainShort)
       const msgIdSet = new Set()
       let error: any = {}
- 
       // Reconstruct the full data object like the regular validate endpoint expects
       const fullData = { context, message }
 
@@ -196,6 +194,9 @@ const controller = {
         if (!result || typeof result !== 'object') return {}
         if (flag === true) return result.schemaErrors || {}
         if (flag === false) return result.businessErrors || {}
+        if (!result.schemaErrors && !result.businessErrors) {
+          return result // Return the flat error object directly
+        }
         return { ...(result.schemaErrors || {}), ...(result.businessErrors || {}) }
       }
 
@@ -227,6 +228,27 @@ const controller = {
               error = checkOnSelect125(fullData, flow, schemaValidation, topLevelStateless ?? true)
               logger.info(`validateSingleAction: checkOnSelect125 result:`, error)
               break
+
+            case 'init':
+              logger.info(`validateSingleAction: calling checkSelect125 for init in domain ${domainShort}`)
+              error = checkInit125(fullData, msgIdSet, ApiSequence.INIT, schemaValidation, topLevelStateless ?? true)
+              logger.info(`validateSingleAction: checkSelect125 for init result:`, error)
+              break
+            case 'on_init':
+              logger.info(`validateSingleAction: calling checkOnSelect125 for on_init in domain ${domainShort}`)
+              error = checkOnInit125(fullData, flow, schemaValidation, topLevelStateless ?? true)
+              logger.info(`validateSingleAction: checkOnSelect125 for on_init result:`, error)
+              break
+            case 'cancel':
+              logger.info(`validateSingleAction: calling checkCancel125 for domain ${domainShort}`)
+              error = checkCancel125(fullData, msgIdSet, ApiSequence.CANCEL, flow, schemaValidation, topLevelStateless ?? true)
+              logger.info(`validateSingleAction: checkCancel125 result:`, error)
+              break
+            case 'on_cancel':
+              logger.info(`validateSingleAction: on_cancel action is not implemented yet for domain ${domainShort}`)
+              error = checkOnCancel125(fullData, flow, schemaValidation, topLevelStateless ?? true)
+              logger.info(`validateSingleAction: checkOnCancel result:`, error)
+              break
             default:
               return res.status(400).send({ success: false, error: `Unsupported action for retail 1.2.5: ${action}` })
           }
@@ -246,7 +268,7 @@ const controller = {
         default:
           return res.status(400).send({ success: false, error: 'Invalid core_version' })
       }
-  
+
       // Select errors via helper for clarity
       const chosenErrors = pickErrors(error, schemaValidation)
 
