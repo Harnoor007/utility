@@ -184,7 +184,7 @@ const controller = {
       logger.info(`validateSingleAction: domain=${domain}, domainShort=${domainShort}, action=${action}, core_version=${core_version}`)
 
       await dropDB()
-      // setValue('flow', flow || '1')
+      // setValue('flow', flow || '2')
       // setValue('domain', domainShort)
       const msgIdSet = new Set()
       let error: any = {}

@@ -78,7 +78,12 @@ export const checkConfirm = (data: any, msgIdSet: any, flow: string, schemaValid
       const hasSchema = Object.keys(schemaErrors).length > 0
       const hasBusiness = Object.keys(cnfrmObj).length > 0
       if (!hasSchema && !hasBusiness) return false
-      return { schemaErrors, businessErrors: cnfrmObj }
+      if (schemaValidation !== undefined) {
+        return { schemaErrors, businessErrors: cnfrmObj }
+      }
+      // Merge schema and business errors into one object
+      const combinedErrors = { ...schemaErrors, ...cnfrmObj }
+      return Object.keys(combinedErrors).length > 0 ? combinedErrors : false
     }
 
     setValue(`${ApiSequence.CONFIRM}`, data)
@@ -580,9 +585,12 @@ export const checkConfirm = (data: any, msgIdSet: any, flow: string, schemaValid
     const hasSchema = Object.keys(schemaErrors).length > 0
     const hasBusiness = Object.keys(cnfrmObj).length > 0
     if (!hasSchema && !hasBusiness) return false
-    return { schemaErrors, businessErrors: cnfrmObj }
-
-  } catch (err: any) {
+    if (schemaValidation !== undefined) {
+      return { schemaErrors, businessErrors: cnfrmObj }
+    }
+    const combinedErrors = { ...schemaErrors, ...cnfrmObj }
+    return Object.keys(combinedErrors).length > 0 ? combinedErrors : false
+  }  catch (err: any) {
     logger.error(`!!Some error occurred while checking /${constants.CONFIRM} API`, err)
     return cnfrmObj // Return original format for backward compatibility
   }
