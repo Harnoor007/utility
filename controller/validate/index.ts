@@ -19,6 +19,20 @@ import { checkCancel as checkCancel125 } from '../../utils/Retail_.1.2.5/Cancel/
 import { checkOnCancel as checkOnCancel125 } from '../../utils/Retail_.1.2.5/Cancel/onCancel'
 import { checkConfirm as checkConfirm125 } from '../../utils/Retail_.1.2.5/Confirm/confirm'
 import { checkOnConfirm as checkOnConfirm125 } from '../../utils/Retail_.1.2.5/Confirm/onConfirm'
+import { checkOnStatusPending as checkOnStatusPending125 } from '../../utils/Retail_.1.2.5/Status/onStatusPending'
+import { checkOnStatusPacked as checkOnStatusPacked125 } from '../../utils/Retail_.1.2.5/Status/onStatusPacked'
+import { checkOnStatusPicked as checkOnStatusPicked125 } from '../../utils/Retail_.1.2.5/Status/onStatusPicked'
+import { checkOnStatusOutForDelivery as checkOnStatusOutForDelivery125 } from '../../utils/Retail_.1.2.5/Status/onStatusOutForDelivery'
+import { checkOnStatusDelivered as checkOnStatusDelivered125 } from '../../utils/Retail_.1.2.5/Status/onStatusDelivered'
+import { checkOnStatusAgentAssigned as checkOnStatusAgentAssigned125 } from '../../utils/Retail_.1.2.5/Status/onStatusAgentAssigned'
+import { checkOnStatusAtPickup as checkOnStatusAtPickup125 } from '../../utils/Retail_.1.2.5/Status/onStatusAtPickup'
+import { checkOnStatusOutForPickup as checkOnStatusOutForPickup125 } from '../../utils/Retail_.1.2.5/Status/onStatusOutForPickup'
+import { checkOnStatusPickupFailed as checkOnStatusPickupFailed125 } from '../../utils/Retail_.1.2.5/Status/onStatusPickupFailed'
+import { checkOnStatusInTransit as checkOnStatusInTransit125 } from '../../utils/Retail_.1.2.5/Status/onStatusInTransit'
+import { checkOnStatusAtDestinationHub as checkOnStatusAtDestinationHub125 } from '../../utils/Retail_.1.2.5/Status/onStatusAtDestinationHub'
+import { checkOnStatusAtDelivery as checkOnStatusAtDelivery125 } from '../../utils/Retail_.1.2.5/Status/onStatusAtDelivery'
+import { checkOnStatusDeliveryFailed as checkOnStatusDeliveryFailed125 } from '../../utils/Retail_.1.2.5/Status/onStatusDeliveryFailed'
+import { checkOnStatusRTODelivered as checkOnStatusRTODelivered125 } from '../../utils/Retail_.1.2.5/Status/onStatusRTODelivered'
 import { ApiSequence } from '../../constants'
 // Retail 1.2.0
 import { checkSearch as checkSearch120 } from '../../utils/Retail/Search/search'
@@ -265,6 +279,66 @@ const controller = {
               logger.info(`validateSingleAction: calling checkOnConfirm for domain ${domainShort}`)
               error = checkOnConfirm125(fullData, flow, schemaValidation, topLevelStateless ?? true)
               logger.info(`validateSingleAction: checkOnConfirm result:`, error)
+              break
+            case 'on_status':
+              logger.info(`validateSingleAction: on_status call for domain ${domainShort}`)
+              if (!message.order.fulfillments || !message.order.fulfillments.length) {
+                error = { fulfillments: 'message.fulfillments is required for on_status' }
+                break
+              }
+              // eslint-disable-next-line no-case-declarations
+              const fulfillmentState = message.order.fulfillments[0]?.state?.descriptor?.code
+              logger.info(`validateSingleAction: on_status with fulfillment state: ${fulfillmentState}`)
+
+              switch (fulfillmentState) {
+                case 'Pending':
+                  error = checkOnStatusPending125(fullData, fulfillmentState, msgIdSet, new Set())
+                  break
+                case 'Packed':
+                  error = checkOnStatusPacked125(fullData, fulfillmentState, msgIdSet, new Set())
+                  break
+                case 'Agent-assigned':
+                  error = checkOnStatusAgentAssigned125(fullData, fulfillmentState, msgIdSet, new Set(), flow, schemaValidation, topLevelStateless ?? true)
+                  break
+                case 'At-pickup':
+                  error = checkOnStatusAtPickup125(fullData, fulfillmentState, msgIdSet, new Set())
+                  break
+                case 'Out-for-pickup':
+                  error = checkOnStatusOutForPickup125(fullData, fulfillmentState, msgIdSet, new Set(), flow)
+                  break
+                case 'Pickup-failed':
+                  error = checkOnStatusPickupFailed125(fullData, fulfillmentState, msgIdSet, new Set(), flow)
+                  break
+                case 'Order-picked-up':
+                  error = checkOnStatusPicked125(fullData, fulfillmentState, msgIdSet, new Set())
+                  break
+                case 'In-transit':
+                  error = checkOnStatusInTransit125(fullData, fulfillmentState, msgIdSet, new Set(), flow)
+                  break
+                case 'At-destination-hub':
+                  error = checkOnStatusAtDestinationHub125(fullData, fulfillmentState, msgIdSet, new Set(), flow)
+                  break
+                case 'At-delivery':
+                  error = checkOnStatusAtDelivery125(fullData, fulfillmentState, msgIdSet, new Set(), flow)
+                  break
+                case 'Out-for-delivery':
+                  error = checkOnStatusOutForDelivery125(fullData, fulfillmentState, msgIdSet, new Set(), schemaValidation, topLevelStateless ?? true)
+                  break
+                case 'Delivery-failed':
+                  error = checkOnStatusDeliveryFailed125(fullData, fulfillmentState, msgIdSet, new Set())
+                  break
+                case 'Order-delivered':
+                  error = checkOnStatusDelivered125(fullData, fulfillmentState, msgIdSet, new Set(), schemaValidation, topLevelStateless ?? true)
+                  break
+                case 'RTO-Delivered':
+                  error = checkOnStatusRTODelivered125(fullData)
+                  break
+                default:
+                  error = {
+                    fulfillmentState: `Unsupported/unimplemented fulfillment state for on_status: ${fulfillmentState}`,
+                  }
+              }
+              logger.info(`validateSingleAction: checkOnStatus result:`, error)
               break
             default:
               return res.status(400).send({ success: false, error: `Unsupported action for retail 1.2.5: ${action}` })

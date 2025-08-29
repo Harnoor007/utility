@@ -18,31 +18,51 @@ import {
   validateOrderUpdatedAt
 } from '../common/statusValidationHelpers'
 
-export const checkOnStatusAgentAssigned = (data: any, _state: string, msgIdSet: any, _fulfillmentsItemsSet: any, flow?: string) => {
+export const checkOnStatusAgentAssigned = (data: any, _state: string, msgIdSet: any, _fulfillmentsItemsSet: any, flow?: string,
+  schemaValidation?: boolean,
+  stateless?: boolean
+) => {
   const onStatusObj: any = {}
+  const schemaErrors: any = {}
   const EXPECTED_STATE = 'Agent-assigned'
-  
   try {
     if (!data || isObjectEmpty(data)) {
       return { [ApiSequence.ON_STATUS_AGENT_ASSIGNED]: 'JSON cannot be empty' }
     }
-    
     const { message, context }: any = data
     if (!message || !context || isObjectEmpty(message)) {
       return { missingFields: '/context, /message, is missing or empty' }
     }
 
     const searchContext: any = getValue(`${ApiSequence.SEARCH}_context`)
-    const schemaValidation = validateSchemaRetailV2(context.domain.split(':')[1], constants.ON_STATUS, data)
-    const contextRes: any = checkContext(context, constants.ON_STATUS)
+    const schemaValidationResult =
+      schemaValidation !== false
+        ? validateSchemaRetailV2(context.domain.split(':')[1], constants.ON_STATUS, data)
+        : 'skip'
 
-    if (schemaValidation !== 'error') {
-      Object.assign(onStatusObj, schemaValidation)
+    const contextRes: any = checkContext(context, constants.ON_STATUS)
+    if (!stateless) {
+      if (!_.isEqual(data.context.domain.split(':')[1], getValue(`domain`))) {
+        onStatusObj[`Domain[${data.context.action}]`] = `Domain should be same in each action`
+      }
+    }
+
+    if (schemaValidationResult !== 'error' && schemaValidationResult !== 'skip') {
+      Object.assign(schemaErrors, schemaValidationResult)
     }
 
     if (!contextRes?.valid) {
       Object.assign(onStatusObj, contextRes.ERRORS)
     }
+
+    if (stateless) {
+      const hasSchema = Object.keys(schemaErrors).length > 0
+      const hasBusiness = Object.keys(onStatusObj).length > 0
+      if (!hasSchema && !hasBusiness) return false
+      return { schemaErrors, businessErrors: onStatusObj }
+    }
+
+
 
     try {
       logger.info(`Adding Message Id /${constants.ON_STATUS}_${EXPECTED_STATE}`)
@@ -151,7 +171,6 @@ export const checkOnStatusAgentAssigned = (data: any, _state: string, msgIdSet: 
         `/${constants.ON_STATUS}_${EXPECTED_STATE}`
       )
       Object.assign(onStatusObj, updatedAtErrors)
-      
       if (on_status.updated_at) {
         setValue('PreviousUpdatedTimestamp', on_status.updated_at)
       }
@@ -269,12 +288,12 @@ export const checkOnStatusAgentAssigned = (data: any, _state: string, msgIdSet: 
       const currentFulfillment = on_status.fulfillments.find((f: any) => f.id === DeliveryFulfillment?.id)
 
       if (currentFulfillment) {
-        const pendingTimestamp = currentFulfillment.state?.descriptor?.code === 'Pending' 
-          ? pending_timestamp 
+        const pendingTimestamp = currentFulfillment.state?.descriptor?.code === 'Pending'
+          ? pending_timestamp
           : DeliveryFulfillment?.['@ondc/org/state_updated_at']
-        
+
         const currentTimestamp = currentFulfillment['@ondc/org/state_updated_at']
-        
+
         if (!currentTimestamp) {
           onStatusObj[`fulfillmentTimestamp[${currentFulfillment.id}]`] = `'@ondc/org/state_updated_at' is required for fulfillment state updates`
         } else if (pendingTimestamp && !areTimestampsLessThanOrEqualTo(pendingTimestamp, currentTimestamp)) {
@@ -299,9 +318,12 @@ export const checkOnStatusAgentAssigned = (data: any, _state: string, msgIdSet: 
       logger.error(`!!Error while storing fulfillment for /${constants.ON_STATUS}_${EXPECTED_STATE}, ${error.stack}`)
     }
 
-    return onStatusObj
+    const hasSchema = Object.keys(schemaErrors).length > 0
+    const hasBusiness = Object.keys(onStatusObj).length > 0
+    if (!hasSchema && !hasBusiness) return false
+    return { schemaErrors, businessErrors: onStatusObj }
   } catch (err: any) {
-    logger.error(`!!Some error occurred while checking /${constants.ON_STATUS}_${EXPECTED_STATE} API`, JSON.stringify(err.stack))
-    return { error: err.message }
+    logger.error(`!!Error in validation of /${constants.ON_STATUS}_${EXPECTED_STATE}, ${err.stack}`)
+    return { [ApiSequence.ON_STATUS_AGENT_ASSIGNED]: `Internal error while validating /${constants.ON_STATUS}_${EXPECTED_STATE}` }
   }
 }

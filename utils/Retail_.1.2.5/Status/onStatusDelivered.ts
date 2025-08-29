@@ -17,8 +17,10 @@ import { getValue, setValue } from '../../../shared/dao'
 import { FLOW } from '../../enum'
 import { validateStateForRouting } from '../common/routingValidator'
 
-export const checkOnStatusDelivered = (data: any, state: string, msgIdSet: any, fulfillmentsItemsSet: any) => {
+export const checkOnStatusDelivered = (data: any, state: string, msgIdSet: any, fulfillmentsItemsSet: any, schemaValidation?: boolean,
+  stateless?: boolean) => {
   const onStatusObj: any = {}
+  const schemaErrors: any = {}
   try {
     if (!data || isObjectEmpty(data)) {
       return { [ApiSequence.ON_STATUS_DELIVERED]: 'JSON cannot be empty' }
@@ -30,12 +32,29 @@ export const checkOnStatusDelivered = (data: any, state: string, msgIdSet: any, 
       return { missingFields: '/context, /message, is missing or empty' }
     }
     const searchContext: any = getValue(`${ApiSequence.SEARCH}_context`)
-    const schemaValidation = validateSchemaRetailV2(context.domain.split(':')[1], constants.ON_STATUS, data)
+    const schemaValidationResult =
+          schemaValidation !== false
+            ? validateSchemaRetailV2(context.domain.split(':')[1], constants.ON_STATUS, data)
+            : 'skip'
+    
     const contextRes: any = checkContext(context, constants.ON_STATUS)
+    if (!stateless) {
+          if (!_.isEqual(data.context.domain.split(':')[1], getValue(`domain`))) {
+            onStatusObj[`Domain[${data.context.action}]`] = `Domain should be same in each action`
+          }
+        }
 
-    if (schemaValidation !== 'error') {
-      Object.assign(onStatusObj, schemaValidation)
+    if (schemaValidationResult !== 'error' && schemaValidationResult !== 'skip') {
+      Object.assign(schemaErrors, schemaValidationResult)
     }
+
+    if (stateless) {
+      const hasSchema = Object.keys(schemaErrors).length > 0
+      const hasBusiness = Object.keys(onStatusObj).length > 0
+      if (!hasSchema && !hasBusiness) return false
+      return { schemaErrors, businessErrors: onStatusObj }
+    }
+
 
     try {
       logger.info(`Adding Message Id /${constants.ON_STATUS_DELIVERED}`)
@@ -546,8 +565,12 @@ export const checkOnStatusDelivered = (data: any, state: string, msgIdSet: any, 
       }
     }
 
-    return onStatusObj
-  } catch (err: any) {
-    logger.error(`!!Some error occurred while checking /${constants.ON_STATUS} API`, err)
+    const hasSchema = Object.keys(schemaErrors).length > 0
+    const hasBusiness = Object.keys(onStatusObj).length > 0
+    if (!hasSchema && !hasBusiness) return false
+    return { schemaErrors, businessErrors: onStatusObj }
+  } catch (error: any) {
+    logger.error(`!!Some error occurred while checking /${constants.ON_STATUS} API`, error.stack)
+    return { [ApiSequence.ON_STATUS_DELIVERED]: `Some error occurred while checking /${constants.ON_STATUS} API` }
   }
 }
