@@ -2,12 +2,7 @@
 import _ from 'lodash'
 import constants, { ApiSequence } from '../../../constants'
 import { logger } from '../../../shared/logger'
-import {
-  validateSchemaRetailV2,
-  isObjectEmpty,
-  checkContext,
-  areTimestampsLessThanOrEqualTo,
-} from '../..'
+import { validateSchemaRetailV2, isObjectEmpty, checkContext, areTimestampsLessThanOrEqualTo } from '../..'
 import { getValue, setValue } from '../../../shared/dao'
 import { isStateForbiddenForRouting } from '../common/routingValidator'
 import {
@@ -15,12 +10,17 @@ import {
   validateProviderCredentials,
   validateFulfillmentConsistency,
   validateRoutingTagStructure,
-  validateOrderUpdatedAt
+  validateOrderUpdatedAt,
 } from '../common/statusValidationHelpers'
 
-export const checkOnStatusAgentAssigned = (data: any, _state: string, msgIdSet: any, _fulfillmentsItemsSet: any, flow?: string,
+export const checkOnStatusAgentAssigned = (
+  data: any,
+  _state: string,
+  msgIdSet: any,
+  _fulfillmentsItemsSet: any,
+  flow?: string,
   schemaValidation?: boolean,
-  stateless?: boolean
+  stateless?: boolean,
 ) => {
   const onStatusObj: any = {}
   const schemaErrors: any = {}
@@ -62,12 +62,11 @@ export const checkOnStatusAgentAssigned = (data: any, _state: string, msgIdSet: 
       return { schemaErrors, businessErrors: onStatusObj }
     }
 
-
-
     try {
       logger.info(`Adding Message Id /${constants.ON_STATUS}_${EXPECTED_STATE}`)
       if (msgIdSet.has(context.message_id)) {
-        onStatusObj[`${ApiSequence.ON_STATUS_AGENT_ASSIGNED}_msgId`] = `Message id should not be same with previous calls`
+        onStatusObj[`${ApiSequence.ON_STATUS_AGENT_ASSIGNED}_msgId`] =
+          `Message id should not be same with previous calls`
       }
       msgIdSet.add(context.message_id)
     } catch (error: any) {
@@ -87,7 +86,9 @@ export const checkOnStatusAgentAssigned = (data: any, _state: string, msgIdSet: 
         Object.assign(onStatusObj, res.ERRORS)
       }
     } catch (error: any) {
-      logger.error(`!!Some error occurred while checking /${constants.ON_STATUS}_${EXPECTED_STATE} context, ${error.stack}`)
+      logger.error(
+        `!!Some error occurred while checking /${constants.ON_STATUS}_${EXPECTED_STATE} context, ${error.stack}`,
+      )
     }
 
     try {
@@ -96,7 +97,9 @@ export const checkOnStatusAgentAssigned = (data: any, _state: string, msgIdSet: 
         onStatusObj.city = `City code mismatch in /${constants.SEARCH} and /${constants.ON_STATUS}_${EXPECTED_STATE}`
       }
     } catch (error: any) {
-      logger.error(`!!Error while comparing city in /${constants.SEARCH} and /${constants.ON_STATUS}_${EXPECTED_STATE}, ${error.stack}`)
+      logger.error(
+        `!!Error while comparing city in /${constants.SEARCH} and /${constants.ON_STATUS}_${EXPECTED_STATE}, ${error.stack}`,
+      )
     }
 
     try {
@@ -126,14 +129,18 @@ export const checkOnStatusAgentAssigned = (data: any, _state: string, msgIdSet: 
     }
 
     try {
-      logger.info(`Comparing timestamp of previous /${constants.ON_STATUS} and /${constants.ON_STATUS}_${EXPECTED_STATE} API`)
+      logger.info(
+        `Comparing timestamp of previous /${constants.ON_STATUS} and /${constants.ON_STATUS}_${EXPECTED_STATE} API`,
+      )
       if (_.gte(getValue('tmpstmp'), context.timestamp)) {
         onStatusObj.inVldTmstmp = `Timestamp in previous /${constants.ON_STATUS} api cannot be greater than or equal to /${constants.ON_STATUS}_${EXPECTED_STATE} api`
       }
 
       setValue('tmpstmp', context.timestamp)
     } catch (error: any) {
-      logger.error(`!!Error occurred while comparing timestamp for /${constants.ON_STATUS}_${EXPECTED_STATE}, ${error.stack}`)
+      logger.error(
+        `!!Error occurred while comparing timestamp for /${constants.ON_STATUS}_${EXPECTED_STATE}, ${error.stack}`,
+      )
     }
 
     try {
@@ -142,7 +149,9 @@ export const checkOnStatusAgentAssigned = (data: any, _state: string, msgIdSet: 
         onStatusObj.tmpstmp1 = `Timestamp for /${constants.ON_CONFIRM} api cannot be greater than or equal to /${constants.ON_STATUS}_${EXPECTED_STATE} api`
       }
     } catch (error: any) {
-      logger.error(`!!Error occurred while comparing timestamp for /${constants.ON_STATUS}_${EXPECTED_STATE}, ${error.stack}`)
+      logger.error(
+        `!!Error occurred while comparing timestamp for /${constants.ON_STATUS}_${EXPECTED_STATE}, ${error.stack}`,
+      )
     }
 
     try {
@@ -151,7 +160,9 @@ export const checkOnStatusAgentAssigned = (data: any, _state: string, msgIdSet: 
         onStatusObj.orderState = `Order state should be 'In-progress' for /${constants.ON_STATUS}_${EXPECTED_STATE}`
       }
     } catch (error: any) {
-      logger.error(`!!Error occurred while checking order state for /${constants.ON_STATUS}_${EXPECTED_STATE}, ${error.stack}`)
+      logger.error(
+        `!!Error occurred while checking order state for /${constants.ON_STATUS}_${EXPECTED_STATE}, ${error.stack}`,
+      )
     }
 
     // Validate routing type - Agent-assigned is valid for both P2P and P2H2P
@@ -168,14 +179,16 @@ export const checkOnStatusAgentAssigned = (data: any, _state: string, msgIdSet: 
         on_status.updated_at,
         contextTime,
         previousUpdatedAt,
-        `/${constants.ON_STATUS}_${EXPECTED_STATE}`
+        `/${constants.ON_STATUS}_${EXPECTED_STATE}`,
       )
       Object.assign(onStatusObj, updatedAtErrors)
       if (on_status.updated_at) {
         setValue('PreviousUpdatedTimestamp', on_status.updated_at)
       }
     } catch (error: any) {
-      logger.error(`!!Error while checking order.updated_at in /${constants.ON_STATUS}_${EXPECTED_STATE}, ${error.stack}`)
+      logger.error(
+        `!!Error while checking order.updated_at in /${constants.ON_STATUS}_${EXPECTED_STATE}, ${error.stack}`,
+      )
     }
 
     // Validate payment status for COD flows
@@ -184,7 +197,7 @@ export const checkOnStatusAgentAssigned = (data: any, _state: string, msgIdSet: 
         const paymentErrors = validatePaymentStatus(
           on_status.payment,
           flow,
-          `/${constants.ON_STATUS}_${EXPECTED_STATE}`
+          `/${constants.ON_STATUS}_${EXPECTED_STATE}`,
         )
         Object.assign(onStatusObj, paymentErrors)
       } catch (error: any) {
@@ -198,11 +211,13 @@ export const checkOnStatusAgentAssigned = (data: any, _state: string, msgIdSet: 
         const providerErrors = validateProviderCredentials(
           on_status.provider,
           flow,
-          `/${constants.ON_STATUS}_${EXPECTED_STATE}`
+          `/${constants.ON_STATUS}_${EXPECTED_STATE}`,
         )
         Object.assign(onStatusObj, providerErrors)
       } catch (error: any) {
-        logger.error(`!!Error while validating provider credentials in /${constants.ON_STATUS}_${EXPECTED_STATE}, ${error.stack}`)
+        logger.error(
+          `!!Error while validating provider credentials in /${constants.ON_STATUS}_${EXPECTED_STATE}, ${error.stack}`,
+        )
       }
     }
 
@@ -233,9 +248,11 @@ export const checkOnStatusAgentAssigned = (data: any, _state: string, msgIdSet: 
           logger.info(`Checking fulfillment state for /${constants.ON_STATUS}_${EXPECTED_STATE}`)
           const ffDesc = ff.state?.descriptor
           if (!ffDesc || !ffDesc.code) {
-            onStatusObj[`fulfillmentState[${ff.id}]`] = `Fulfillment state descriptor is missing for /${constants.ON_STATUS}_${EXPECTED_STATE}`
+            onStatusObj[`fulfillmentState[${ff.id}]`] =
+              `Fulfillment state descriptor is missing for /${constants.ON_STATUS}_${EXPECTED_STATE}`
           } else if (ffDesc.code !== EXPECTED_STATE) {
-            onStatusObj[`fulfillmentState[${ff.id}]`] = `Fulfillment state should be '${EXPECTED_STATE}' for /${constants.ON_STATUS}_${EXPECTED_STATE} but found '${ffDesc.code}'`
+            onStatusObj[`fulfillmentState[${ff.id}]`] =
+              `Fulfillment state should be '${EXPECTED_STATE}' for /${constants.ON_STATUS}_${EXPECTED_STATE} but found '${ffDesc.code}'`
           }
 
           // Validate state is allowed for routing type
@@ -243,11 +260,14 @@ export const checkOnStatusAgentAssigned = (data: any, _state: string, msgIdSet: 
           if (routingType) {
             const validationError = isStateForbiddenForRouting(ffDesc.code, routingType)
             if (validationError) {
-              onStatusObj[`fulfillmentStateRouting[${ff.id}]`] = `Fulfillment state '${ffDesc.code}' is not allowed for ${routingType} routing`
+              onStatusObj[`fulfillmentStateRouting[${ff.id}]`] =
+                `Fulfillment state '${ffDesc.code}' is not allowed for ${routingType} routing`
             }
           }
         } catch (error: any) {
-          logger.error(`!!Error while checking fulfillment state for /${constants.ON_STATUS}_${EXPECTED_STATE}, ${error.stack}`)
+          logger.error(
+            `!!Error while checking fulfillment state for /${constants.ON_STATUS}_${EXPECTED_STATE}, ${error.stack}`,
+          )
         }
 
         // Validate routing tag structure
@@ -255,11 +275,13 @@ export const checkOnStatusAgentAssigned = (data: any, _state: string, msgIdSet: 
           const routingTagErrors = validateRoutingTagStructure(
             ff,
             routingType,
-            `/${constants.ON_STATUS}_${EXPECTED_STATE}`
+            `/${constants.ON_STATUS}_${EXPECTED_STATE}`,
           )
           Object.assign(onStatusObj, routingTagErrors)
         } catch (error: any) {
-          logger.error(`!!Error while validating routing tags for /${constants.ON_STATUS}_${EXPECTED_STATE}, ${error.stack}`)
+          logger.error(
+            `!!Error while validating routing tags for /${constants.ON_STATUS}_${EXPECTED_STATE}, ${error.stack}`,
+          )
         }
 
         // Validate fulfillment consistency
@@ -269,16 +291,20 @@ export const checkOnStatusAgentAssigned = (data: any, _state: string, msgIdSet: 
             const consistencyErrors = validateFulfillmentConsistency(
               ff,
               storedFulfillment,
-              `/${constants.ON_STATUS}_${EXPECTED_STATE}`
+              `/${constants.ON_STATUS}_${EXPECTED_STATE}`,
             )
             Object.assign(onStatusObj, consistencyErrors)
           } catch (error: any) {
-            logger.error(`!!Error while validating fulfillment consistency for /${constants.ON_STATUS}_${EXPECTED_STATE}, ${error.stack}`)
+            logger.error(
+              `!!Error while validating fulfillment consistency for /${constants.ON_STATUS}_${EXPECTED_STATE}, ${error.stack}`,
+            )
           }
         }
       })
     } catch (error: any) {
-      logger.info(`Error while checking fulfillments id, type and tracking in /${constants.ON_STATUS}_${EXPECTED_STATE}`)
+      logger.info(
+        `Error while checking fulfillments id, type and tracking in /${constants.ON_STATUS}_${EXPECTED_STATE}`,
+      )
     }
 
     try {
@@ -288,20 +314,25 @@ export const checkOnStatusAgentAssigned = (data: any, _state: string, msgIdSet: 
       const currentFulfillment = on_status.fulfillments.find((f: any) => f.id === DeliveryFulfillment?.id)
 
       if (currentFulfillment) {
-        const pendingTimestamp = currentFulfillment.state?.descriptor?.code === 'Pending'
-          ? pending_timestamp
-          : DeliveryFulfillment?.['@ondc/org/state_updated_at']
+        const pendingTimestamp =
+          currentFulfillment.state?.descriptor?.code === 'Pending'
+            ? pending_timestamp
+            : DeliveryFulfillment?.['@ondc/org/state_updated_at']
 
         const currentTimestamp = currentFulfillment['@ondc/org/state_updated_at']
 
         if (!currentTimestamp) {
-          onStatusObj[`fulfillmentTimestamp[${currentFulfillment.id}]`] = `'@ondc/org/state_updated_at' is required for fulfillment state updates`
+          onStatusObj[`fulfillmentTimestamp[${currentFulfillment.id}]`] =
+            `'@ondc/org/state_updated_at' is required for fulfillment state updates`
         } else if (pendingTimestamp && !areTimestampsLessThanOrEqualTo(pendingTimestamp, currentTimestamp)) {
-          onStatusObj[`fulfillmentTimestampOrder[${currentFulfillment.id}]`] = `'@ondc/org/state_updated_at' should be greater than or equal to the previous state timestamp`
+          onStatusObj[`fulfillmentTimestampOrder[${currentFulfillment.id}]`] =
+            `'@ondc/org/state_updated_at' should be greater than or equal to the previous state timestamp`
         }
       }
     } catch (error: any) {
-      logger.error(`!!Error while checking fulfillment timestamps for /${constants.ON_STATUS}_${EXPECTED_STATE}, ${error.stack}`)
+      logger.error(
+        `!!Error while checking fulfillment timestamps for /${constants.ON_STATUS}_${EXPECTED_STATE}, ${error.stack}`,
+      )
     }
 
     try {
@@ -324,6 +355,8 @@ export const checkOnStatusAgentAssigned = (data: any, _state: string, msgIdSet: 
     return { schemaErrors, businessErrors: onStatusObj }
   } catch (err: any) {
     logger.error(`!!Error in validation of /${constants.ON_STATUS}_${EXPECTED_STATE}, ${err.stack}`)
-    return { [ApiSequence.ON_STATUS_AGENT_ASSIGNED]: `Internal error while validating /${constants.ON_STATUS}_${EXPECTED_STATE}` }
+    return {
+      [ApiSequence.ON_STATUS_AGENT_ASSIGNED]: `Internal error while validating /${constants.ON_STATUS}_${EXPECTED_STATE}`,
+    }
   }
 }

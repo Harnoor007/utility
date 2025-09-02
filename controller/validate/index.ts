@@ -33,6 +33,8 @@ import { checkOnStatusAtDestinationHub as checkOnStatusAtDestinationHub125 } fro
 import { checkOnStatusAtDelivery as checkOnStatusAtDelivery125 } from '../../utils/Retail_.1.2.5/Status/onStatusAtDelivery'
 import { checkOnStatusDeliveryFailed as checkOnStatusDeliveryFailed125 } from '../../utils/Retail_.1.2.5/Status/onStatusDeliveryFailed'
 import { checkOnStatusRTODelivered as checkOnStatusRTODelivered125 } from '../../utils/Retail_.1.2.5/Status/onStatusRTODelivered'
+import { checkTrack as checkTrack125 } from '../../utils/Retail_.1.2.5/Track/track'
+import { checkOnTrack as checkOnTrack125 } from '../../utils/Retail_.1.2.5/Track/onTrack'
 import { ApiSequence } from '../../constants'
 // Retail 1.2.0
 import { checkSearch as checkSearch120 } from '../../utils/Retail/Search/search'
@@ -251,9 +253,9 @@ const controller = {
               break
 
             case 'init':
-              logger.info(`validateSingleAction: calling checkSelect125 for init in domain ${domainShort}`)
+              logger.info(`validateSingleAction: calling checkInit125 for init in domain ${domainShort}`)
               error = checkInit125(fullData, msgIdSet, ApiSequence.INIT, schemaValidation, topLevelStateless ?? true)
-              logger.info(`validateSingleAction: checkSelect125 for init result:`, error)
+              logger.info(`validateSingleAction: checkInit125 for init result:`, error)
               break
             case 'on_init':
               logger.info(`validateSingleAction: calling checkOnSelect125 for on_init in domain ${domainShort}`)
@@ -286,52 +288,51 @@ const controller = {
                 error = { fulfillments: 'message.fulfillments is required for on_status' }
                 break
               }
-              // eslint-disable-next-line no-case-declarations
               const fulfillmentState = message.order.fulfillments[0]?.state?.descriptor?.code
               logger.info(`validateSingleAction: on_status with fulfillment state: ${fulfillmentState}`)
 
               switch (fulfillmentState) {
                 case 'Pending':
-                  error = checkOnStatusPending125(fullData, fulfillmentState, msgIdSet, new Set())
+                  error = checkOnStatusPending125(fullData, fulfillmentState, msgIdSet, new Set(), schemaValidation, topLevelStateless ?? true)
                   break
-                case 'Packed':
-                  error = checkOnStatusPacked125(fullData, fulfillmentState, msgIdSet, new Set())
+                case 'Packed': //Check Errors
+                  error = checkOnStatusPacked125(fullData, fulfillmentState, msgIdSet, new Set(), schemaValidation, topLevelStateless ?? true)
                   break
                 case 'Agent-assigned':
                   error = checkOnStatusAgentAssigned125(fullData, fulfillmentState, msgIdSet, new Set(), flow, schemaValidation, topLevelStateless ?? true)
                   break
                 case 'At-pickup':
-                  error = checkOnStatusAtPickup125(fullData, fulfillmentState, msgIdSet, new Set())
+                  error = checkOnStatusAtPickup125(fullData, fulfillmentState, msgIdSet, new Set(), flow, schemaValidation, topLevelStateless ?? true)
                   break
-                case 'Out-for-pickup':
-                  error = checkOnStatusOutForPickup125(fullData, fulfillmentState, msgIdSet, new Set(), flow)
+                case 'Out-for-pickup': //Check Errors
+                  error = checkOnStatusOutForPickup125(fullData, fulfillmentState, msgIdSet, new Set(), flow, schemaValidation, topLevelStateless ?? true)
                   break
-                case 'Pickup-failed':
-                  error = checkOnStatusPickupFailed125(fullData, fulfillmentState, msgIdSet, new Set(), flow)
+                case 'Pickup-failed': //Check Errors
+                  error = checkOnStatusPickupFailed125(fullData, fulfillmentState, msgIdSet, new Set(), flow, schemaValidation, topLevelStateless ?? true)
                   break
-                case 'Order-picked-up':
-                  error = checkOnStatusPicked125(fullData, fulfillmentState, msgIdSet, new Set())
+                case 'Order-picked-up': //Check Errors
+                  error = checkOnStatusPicked125(fullData, fulfillmentState, msgIdSet, new Set(), schemaValidation, topLevelStateless ?? true)
                   break
-                case 'In-transit':
-                  error = checkOnStatusInTransit125(fullData, fulfillmentState, msgIdSet, new Set(), flow)
+                case 'In-transit': //Check Errors
+                  error = checkOnStatusInTransit125(fullData, fulfillmentState, msgIdSet, new Set(), flow, schemaValidation, topLevelStateless ?? true)
                   break
-                case 'At-destination-hub':
-                  error = checkOnStatusAtDestinationHub125(fullData, fulfillmentState, msgIdSet, new Set(), flow)
+                case 'At-destination-hub': //Check Errors
+                  error = checkOnStatusAtDestinationHub125(fullData, fulfillmentState, msgIdSet, new Set(), flow, schemaValidation, topLevelStateless ?? true)
                   break
-                case 'At-delivery':
-                  error = checkOnStatusAtDelivery125(fullData, fulfillmentState, msgIdSet, new Set(), flow)
+                case 'At-delivery': //Check Errors
+                  error = checkOnStatusAtDelivery125(fullData, fulfillmentState, msgIdSet, new Set(), flow, schemaValidation, topLevelStateless ?? true)
                   break
                 case 'Out-for-delivery':
                   error = checkOnStatusOutForDelivery125(fullData, fulfillmentState, msgIdSet, new Set(), schemaValidation, topLevelStateless ?? true)
                   break
-                case 'Delivery-failed':
-                  error = checkOnStatusDeliveryFailed125(fullData, fulfillmentState, msgIdSet, new Set())
+                case 'Delivery-failed':  //Check Errors
+                  error = checkOnStatusDeliveryFailed125(fullData, fulfillmentState, msgIdSet, new Set(), schemaValidation, topLevelStateless ?? true)
                   break
                 case 'Order-delivered':
                   error = checkOnStatusDelivered125(fullData, fulfillmentState, msgIdSet, new Set(), schemaValidation, topLevelStateless ?? true)
                   break
-                case 'RTO-Delivered':
-                  error = checkOnStatusRTODelivered125(fullData)
+                case 'RTO-Delivered':  //Check Errors
+                  error = checkOnStatusRTODelivered125(fullData, schemaValidation, topLevelStateless ?? true)
                   break
                 default:
                   error = {
@@ -339,6 +340,16 @@ const controller = {
                   }
               }
               logger.info(`validateSingleAction: checkOnStatus result:`, error)
+              break
+            case 'track':
+              logger.info(`validateSingleAction: calling checkTrack125 for domain ${domainShort}`)
+              error = checkTrack125(fullData, schemaValidation, topLevelStateless ?? true)
+              logger.info(`validateSingleAction: checkTrack125 result:`, error)
+              break
+            case 'on_track':
+              logger.info(`validateSingleAction: calling checkOnTrack125 for domain ${domainShort}`)
+              error = checkOnTrack125(fullData, schemaValidation, topLevelStateless ?? true)
+              logger.info(`validateSingleAction: checkOnTrack125 result:`, error)
               break
             default:
               return res.status(400).send({ success: false, error: `Unsupported action for retail 1.2.5: ${action}` })
