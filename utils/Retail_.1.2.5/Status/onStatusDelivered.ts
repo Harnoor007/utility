@@ -17,8 +17,7 @@ import { getValue, setValue } from '../../../shared/dao'
 import { FLOW } from '../../enum'
 import { validateStateForRouting } from '../common/routingValidator'
 
-export const checkOnStatusDelivered = (data: any, state: string, msgIdSet: any, fulfillmentsItemsSet: any, schemaValidation?: boolean,
-  stateless?: boolean) => {
+export const checkOnStatusDelivered = (data: any, state: string, msgIdSet: any, fulfillmentsItemsSet: any, schemaValidation?: boolean, stateless?: boolean) => {
   const onStatusObj: any = {}
   const schemaErrors: any = {}
   try {
@@ -33,16 +32,16 @@ export const checkOnStatusDelivered = (data: any, state: string, msgIdSet: any, 
     }
     const searchContext: any = getValue(`${ApiSequence.SEARCH}_context`)
     const schemaValidationResult =
-          schemaValidation !== false
-            ? validateSchemaRetailV2(context.domain.split(':')[1], constants.ON_STATUS, data)
-            : 'skip'
-    
+      schemaValidation !== false
+        ? validateSchemaRetailV2(context.domain.split(':')[1], constants.ON_STATUS, data)
+        : 'skip'
+
     const contextRes: any = checkContext(context, constants.ON_STATUS)
     if (!stateless) {
-          if (!_.isEqual(data.context.domain.split(':')[1], getValue(`domain`))) {
-            onStatusObj[`Domain[${data.context.action}]`] = `Domain should be same in each action`
-          }
-        }
+      if (!_.isEqual(data.context.domain.split(':')[1], getValue(`domain`))) {
+        onStatusObj[`Domain[${data.context.action}]`] = `Domain should be same in each action`
+      }
+    }
 
     if (schemaValidationResult !== 'error' && schemaValidationResult !== 'skip') {
       Object.assign(schemaErrors, schemaValidationResult)
@@ -308,13 +307,13 @@ export const checkOnStatusDelivered = (data: any, state: string, msgIdSet: any, 
 
         if (ffState === constants.ORDER_DELIVERED) {
           orderDelivered = true
-          
+
           // Validate state is allowed for routing type
           const routingType = getValue('routingType')
           if (routingType && !validateStateForRouting(ffState, routingType)) {
             onStatusObj[`fulfillmentStateRouting[${fulfillment.id}]`] = `Fulfillment state '${ffState}' is not allowed for ${routingType} routing`
           }
-          
+
           const pickUpTime = fulfillment.start.time.timestamp
           const deliveryTime = fulfillment.end.time.timestamp
           deliveryTimestamps[fulfillment.id] = deliveryTime
@@ -525,28 +524,28 @@ export const checkOnStatusDelivered = (data: any, state: string, msgIdSet: any, 
     }
 
 
-     try {
-              const credsWithProviderId = getValue('credsWithProviderId')
-              const providerId = on_status?.provider?.id
-              const confirmCreds = on_status?.provider?.creds
-              const found = credsWithProviderId.find((ele: { providerId: any }) => ele.providerId === providerId)
-              const expectedCreds = found?.creds
-               if (!expectedCreds) {
-                onStatusObj['MissingCreds'] = `creds must be present in /${constants.ON_STATUS_DELIVERED}`
-              }
-               if (flow === FLOW.FLOW017) {
-         
-              if (!expectedCreds) {
-                onStatusObj['MissingCreds'] = `creds must be present in /${constants.ON_SEARCH}`
-              } else if (!deepCompare(expectedCreds, confirmCreds)) {
-                console.log('here inside else')
-                onStatusObj['MissingCreds'] = `creds must be present and same as in /${constants.ON_SEARCH}`
-              }
-            }
-              
-            } catch (err: any) {
-            logger.error(`!!Some error occurred while checking /${constants.ON_STATUS} API`, err)
-            }
+    try {
+      const credsWithProviderId = getValue('credsWithProviderId')
+      const providerId = on_status?.provider?.id
+      const confirmCreds = on_status?.provider?.creds
+      const found = credsWithProviderId.find((ele: { providerId: any }) => ele.providerId === providerId)
+      const expectedCreds = found?.creds
+      if (!expectedCreds) {
+        onStatusObj['MissingCreds'] = `creds must be present in /${constants.ON_STATUS_DELIVERED}`
+      }
+      if (flow === FLOW.FLOW017) {
+
+        if (!expectedCreds) {
+          onStatusObj['MissingCreds'] = `creds must be present in /${constants.ON_SEARCH}`
+        } else if (!deepCompare(expectedCreds, confirmCreds)) {
+          console.log('here inside else')
+          onStatusObj['MissingCreds'] = `creds must be present and same as in /${constants.ON_SEARCH}`
+        }
+      }
+
+    } catch (err: any) {
+      logger.error(`!!Some error occurred while checking /${constants.ON_STATUS} API`, err)
+    }
     if (flow === FLOW.FLOW01C) {
       const fulfillments = on_status.fulfillments
       const deliveryFulfillment = fulfillments.find((f: any) => f.type === 'Delivery')

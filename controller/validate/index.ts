@@ -35,6 +35,8 @@ import { checkOnStatusDeliveryFailed as checkOnStatusDeliveryFailed125 } from '.
 import { checkOnStatusRTODelivered as checkOnStatusRTODelivered125 } from '../../utils/Retail_.1.2.5/Status/onStatusRTODelivered'
 import { checkTrack as checkTrack125 } from '../../utils/Retail_.1.2.5/Track/track'
 import { checkOnTrack as checkOnTrack125 } from '../../utils/Retail_.1.2.5/Track/onTrack'
+import { checkUpdate as checkUpdate125 } from '../../utils/Retail_.1.2.5/Update/update'
+import { checkOnUpdate as checkOnUpdate125 } from '../../utils/Retail_.1.2.5/Update/onUpdate'
 import { ApiSequence } from '../../constants'
 // Retail 1.2.0
 import { checkSearch as checkSearch120 } from '../../utils/Retail/Search/search'
@@ -227,6 +229,7 @@ const controller = {
         case '1.2.5':
           switch (action) {
             case 'search':
+
               logger.info(`validateSingleAction: calling checkSearch125 for domain ${domainShort}`)
               error = checkSearch125(fullData, msgIdSet, flow, topLevelStateless ?? true, undefined)
               logger.info(`validateSingleAction: checkSearch125 result:`, error)
@@ -251,7 +254,6 @@ const controller = {
               error = checkOnSelect125(fullData, flow, schemaValidation, topLevelStateless ?? true)
               logger.info(`validateSingleAction: checkOnSelect125 result:`, error)
               break
-
             case 'init':
               logger.info(`validateSingleAction: calling checkInit125 for init in domain ${domainShort}`)
               error = checkInit125(fullData, msgIdSet, ApiSequence.INIT, schemaValidation, topLevelStateless ?? true)
@@ -350,6 +352,16 @@ const controller = {
               logger.info(`validateSingleAction: calling checkOnTrack125 for domain ${domainShort}`)
               error = checkOnTrack125(fullData, schemaValidation, topLevelStateless ?? true)
               logger.info(`validateSingleAction: checkOnTrack125 result:`, error)
+              break
+            case 'update':
+              logger.info(`validateSingleAction: calling checkUpdate125 for domain ${domainShort}`)
+              error = checkUpdate125(fullData, msgIdSet, ApiSequence.UPDATE, new Set(), flow, schemaValidation, topLevelStateless ?? true)
+              logger.info(`validateSingleAction: checkUpdate125 result:`, error)
+              break
+            case 'on_update':
+              logger.info(`validateSingleAction: calling checkUpdate125 for domain ${domainShort}`)
+              error = checkOnUpdate125(fullData, msgIdSet, ApiSequence.ON_UPDATE, new Set(), new Set(), new Set(), flow)
+              logger.info(`validateSingleAction: checkUpdate125 result:`, error)
               break
             default:
               return res.status(400).send({ success: false, error: `Unsupported action for retail 1.2.5: ${action}` })
