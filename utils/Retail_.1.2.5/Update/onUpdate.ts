@@ -31,8 +31,11 @@ export const checkOnUpdate = (
   quoteTrailItemsSet: any,
   fulfillmentsItemsSet: any,
   flow: any,
+  schemaValidation?: boolean,
+  stateless?: boolean
 ) => {
   const onupdtObj: any = {}
+  const schemaErrors: any = {}
   const quoteItemSet: any = new Set()
   const onConfirmQuote = getValue(`${constants.ON_CONFIRM}/quote`)
   const selectPriceMap: any = getValue('selectPriceMap')
@@ -55,10 +58,13 @@ export const checkOnUpdate = (
     }
 
     // Validating Schema
-    const schemaValidation = validateSchemaRetailV2(context.domain.split(':')[1], constants.ON_UPDATE, data)
+    const schemaValidationResult =
+      schemaValidation !== false
+        ? validateSchemaRetailV2(context.domain.split(':')[1], constants.ON_UPDATE, data)
+        : 'skip'
 
-    if (schemaValidation !== 'error') {
-      Object.assign(onupdtObj, schemaValidation)
+    if (schemaValidationResult !== 'error' && schemaValidationResult !== 'skip') {
+      Object.assign(schemaErrors, schemaValidationResult)
     }
 
     // have to change here as well for flow 6-a and 6-b
@@ -2173,7 +2179,28 @@ export const checkOnUpdate = (
     // } catch (error) {
       
     // }
-    return onupdtObj
+    // --- stateless & schemaValidation logic ---
+    const hasSchema = Object.keys(schemaErrors).length > 0;
+    const hasBusiness = Object.keys(onupdtObj).length > 0;
+
+    if (stateless) {
+      if (schemaValidation === true) {
+        return hasSchema ? schemaErrors : false;
+      }
+      if (schemaValidation === false) {
+        return hasBusiness ? onupdtObj : false;
+      }
+      if (!hasSchema && !hasBusiness) return false;
+      return { schemaErrors, businessErrors: onupdtObj };
+    }
+
+    if (schemaValidation === true) {
+      return { schemaErrors, businessErrors: {} };
+    } else if (schemaValidation === false) {
+      return { schemaErrors: {}, businessErrors: onupdtObj };
+    } else {
+      return { schemaErrors, businessErrors: onupdtObj };
+    }
   } catch (error: any) {
     logger.error(`!!Some error occurred while checking /${apiSeq} API`, error.stack)
   }

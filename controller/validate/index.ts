@@ -360,7 +360,7 @@ const controller = {
               break
             case 'on_update':
               logger.info(`validateSingleAction: calling checkUpdate125 for domain ${domainShort}`)
-              error = checkOnUpdate125(fullData, msgIdSet, ApiSequence.ON_UPDATE, new Set(), new Set(), new Set(), flow)
+              error = checkOnUpdate125(fullData, msgIdSet, ApiSequence.ON_UPDATE, new Set(), new Set(), new Set(), flow, schemaValidation, topLevelStateless ?? true)
               logger.info(`validateSingleAction: checkUpdate125 result:`, error)
               break
             default:
