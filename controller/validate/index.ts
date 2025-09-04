@@ -37,6 +37,8 @@ import { checkTrack as checkTrack125 } from '../../utils/Retail_.1.2.5/Track/tra
 import { checkOnTrack as checkOnTrack125 } from '../../utils/Retail_.1.2.5/Track/onTrack'
 import { checkUpdate as checkUpdate125 } from '../../utils/Retail_.1.2.5/Update/update'
 import { checkOnUpdate as checkOnUpdate125 } from '../../utils/Retail_.1.2.5/Update/onUpdate'
+import { checkSearchIncremental as checkSearchIncremental125 } from '../../utils/Retail_.1.2.5/SearchInc/searchIncremental'
+import { checkOnsearchIncremental as checkOnSearchIncremental125 } from '../../utils/Retail_.1.2.5/SearchInc/onSearchIncremental'
 import { ApiSequence } from '../../constants'
 // Retail 1.2.0
 import { checkSearch as checkSearch120 } from '../../utils/Retail/Search/search'
@@ -206,8 +208,6 @@ const controller = {
       logger.info(`validateSingleAction: domain=${domain}, domainShort=${domainShort}, action=${action}, core_version=${core_version}`)
 
       await dropDB()
-      // setValue('flow', flow || '2')
-      // setValue('domain', domainShort)
       const msgIdSet = new Set()
       let error: any = {}
 
@@ -229,18 +229,35 @@ const controller = {
         case '1.2.5':
           switch (action) {
             case 'search':
+              if (!context.city) {
+                error = { fulfillments: 'context.city is required for search' }
+                break
+              }
+              if (context.city != "*") {
+                //search full catalog
+                logger.info(`validateSingleAction: calling checkSearch125 for domain ${domainShort}`)
+                error = checkSearch125(fullData, msgIdSet, flow, topLevelStateless ?? true, undefined)
+                logger.info(`validateSingleAction: checkSearch125 result:`, error)
+              } else {
+                //incremental
+                logger.info(`validateSingleAction: calling checkOnsearchIncremental125 for domain ${domainShort}`)
+                error = checkSearchIncremental125(fullData, msgIdSet)
+                logger.info(`validateSingleAction: checkOnsearchIncremental125 result:`, error)
+              }
 
-              logger.info(`validateSingleAction: calling checkSearch125 for domain ${domainShort}`)
-              error = checkSearch125(fullData, msgIdSet, flow, topLevelStateless ?? true, undefined)
-              logger.info(`validateSingleAction: checkSearch125 result:`, error)
               break
             case 'on_search':
               if (domainShort === 'RET11') {
                 logger.info(`validateSingleAction: calling checkOnSearchRET11 for domain ${domainShort}`)
                 error = checkOnSearchRET11(fullData, flow, topLevelStateless ?? true, undefined)
               } else {
-                logger.info(`validateSingleAction: calling checkOnSearch125 for domain ${domainShort}`)
-                error = checkOnSearch125(fullData, flow, topLevelStateless ?? true, undefined)
+                if (context.city != "*") {
+                  logger.info(`validateSingleAction: calling checkOnSearch125 for domain ${domainShort}`)
+                  error = checkOnSearch125(fullData, flow, topLevelStateless ?? true, undefined)
+                } else {
+                  logger.info(`validateSingleAction: calling checkOnSearchIncremental125 for domain ${domainShort}`)
+                  error = checkOnSearchIncremental125(fullData, msgIdSet)
+                }
               }
               logger.info(`validateSingleAction: on_search result:`, error)
               break
